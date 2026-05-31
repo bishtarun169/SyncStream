@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Vite Build Output
+dist/
+
+# Coverage
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Cache
+.parcel-cache/
+.cache/
+.eslintcache
+
+# Runtime Files
+*.pid
+*.seed
+*.pid.lock
