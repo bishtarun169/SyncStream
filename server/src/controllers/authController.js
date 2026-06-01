@@ -1,10 +1,15 @@
 const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 
 const registerUser = async (req, res) => {
      console.log(req.body);
      try {
           const { name, email, password } = req.body;
           
+          // Hash the password
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash(password, salt);
+
           // Check if user already exists
           let user = await User.findOne({ email });
           if (user) {
@@ -12,7 +17,7 @@ const registerUser = async (req, res) => {
           }
 
           // Create new user
-          user = new User({ name, email, password });
+          user = new User({ name, email, password: hashedPassword });
           await user.save();
 
           res.status(201).json({ message: 'User registered successfully' });
