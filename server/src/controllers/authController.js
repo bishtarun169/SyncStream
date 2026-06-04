@@ -79,4 +79,42 @@ const getCurrentUser = async (req, res) => {
      }
 };
 
-module.exports = { registerUser, loginUser , getCurrentUser };      
+// Update user details (name, profile picture, optional password)
+const updateUser = async (req, res) => {
+     try {
+          const { name, profilePic, password, settings } = req.body;
+          const updates = {};
+          if (name) updates.name = name;
+          if (profilePic !== undefined) updates.profilePic = profilePic;
+          if (settings !== undefined) updates.settings = settings;
+
+          if (password) {
+               const salt = await bcrypt.genSalt(10);
+               updates.password = await bcrypt.hash(password, salt);
+          }
+
+          const user = await User.findByIdAndUpdate(
+               req.user.userId,
+               { $set: updates },
+               { new: true }
+          ).select('-password');
+
+          res.json({ message: 'Profile updated successfully', user });
+     } catch (error) {
+          console.error(error.message);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+// Delete user account
+const deleteUser = async (req, res) => {
+     try {
+          await User.findByIdAndDelete(req.user.userId);
+          res.json({ message: 'Account deleted successfully' });
+     } catch (error) {
+          console.error(error.message);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+module.exports = { registerUser, loginUser , getCurrentUser, updateUser, deleteUser };

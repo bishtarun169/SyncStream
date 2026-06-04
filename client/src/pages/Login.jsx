@@ -1,8 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { FaEye, FaEyeSlash, FaChevronLeft } from "react-icons/fa";
 
 export default function Login() {
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
 
   const [email, setEmail] = useState("");
@@ -40,6 +41,11 @@ export default function Login() {
         if (data.token) {
           localStorage.setItem("token", data.token);
         }
+        
+        // Redirect to /home after 1 second
+        setTimeout(() => {
+          navigate("/home");
+        }, 1000);
       } else {
         setError(data.message || "Login failed");
       }
