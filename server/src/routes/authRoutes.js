@@ -2,7 +2,7 @@ const express = require('express');
 
 const router = express.Router();
 
-const { registerUser , loginUser } = require('../controllers/authController');
+const { registerUser , loginUser, getCurrentUser } = require('../controllers/authController');
 const authMiddle = require('../middleware/authMiddleware');
 
 // @route   POST /api/auth/register
@@ -18,9 +18,6 @@ router.post('/login', loginUser);
 //@route   GET /api/auth/me
 //@desc    Get current user info
 //@access  Private
-
-router.get('/me', authMiddle, (req, res) => {
-     res.json({ user: req.user });
-});
+router.get('/me', authMiddle, getCurrentUser);
 
 module.exports = router; 
