@@ -1,32 +1,98 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaEye, FaEyeSlash, FaChevronLeft } from "react-icons/fa";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
 
+  const [email, setEmail] = useState("");
+
+  const [password, setPassword] = useState("");
+
+  const [message, setMessage] = useState("");
+
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setMessage(data.message || "Login successful!");
+
+        // Store JWT token if backend sends one
+        if (data.token) {
+          localStorage.setItem("token", data.token);
+        }
+      } else {
+        setError(data.message || "Login failed");
+      }
+    } catch (err) {
+      setError("Unable to connect to server");
+      console.error(err);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#0f0f13] flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-[#18181b] p-8 rounded-3xl border border-zinc-800">
+    <div className="min-h-screen bg-[#0f0f13] text-white flex items-center justify-center px-4 py-12 relative overflow-hidden">
+      {/* Background Blur */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-red-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-red-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <div className="w-full max-w-md bg-[#18181b]/80 backdrop-blur-md p-8 sm:p-10 rounded-3xl border border-zinc-800 shadow-2xl relative z-10">
+        {/* Back Button */}
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-zinc-400 hover:text-white mb-6 text-sm transition duration-200"
+        >
+          <FaChevronLeft size={12} />
+          Back to Home
+        </Link>
+
+        {/* Heading */}
         <h1 className="text-4xl font-bold text-red-500 text-center">
           StreamMate
         </h1>
 
         <p className="text-center text-zinc-400 mt-2">Welcome back</p>
 
-        <form className="mt-8 space-y-5">
+        <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+          {/* Email */}
           <input
             type="email"
             placeholder="Email"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none focus:border-red-500"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition"
+            required
           />
 
-          {/* Password Field */}
+          {/* Password */}
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
               placeholder="Password"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 pr-12 text-white outline-none focus:border-red-500"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3 pr-12 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition"
+              required
             />
 
             <button
@@ -38,7 +104,25 @@ export default function Login() {
             </button>
           </div>
 
-          <button className="w-full bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700 transition">
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500 text-red-400 rounded-xl px-4 py-3 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Success Message */}
+          {message && (
+            <div className="bg-green-500/10 border border-green-500 text-green-400 rounded-xl px-4 py-3 text-sm">
+              {message}
+            </div>
+          )}
+
+          {/* Login Button */}
+          <button
+            type="submit"
+            className="w-full bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/20 transition-all duration-200 cursor-pointer"
+          >
             Login
           </button>
         </form>
