@@ -5,6 +5,10 @@ const roomRoutes = require('./routes/roomRoutes');
 
 const app = express();
 
+const cors = require('cors');
+
+app.use(cors());
+
 // Middleware
 app.use(express.json());
 
