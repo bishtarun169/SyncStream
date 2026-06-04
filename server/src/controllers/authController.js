@@ -6,8 +6,13 @@ const jwt = require('jsonwebtoken');
 const registerUser = async (req, res) => {
      console.log(req.body);
      try {
-          const { name, email, password } = req.body;
+          const { name, email, password , confirmPassword } = req.body;
           
+          // Check if passwords match
+          if (password !== confirmPassword) {
+               return res.status(400).json({ message: 'Passwords do not match' });
+          }
+
           // Hash the password
           const salt = await bcrypt.genSalt(10);
           const hashedPassword = await bcrypt.hash(password, salt);
@@ -61,4 +66,17 @@ const loginUser = async (req, res) => {
      }
 };   
 
-module.exports = { registerUser, loginUser };      
+// Get current user info controller (protected route)
+// This will be handled in the authRoutes.js file using the authMiddleware
+
+const getCurrentUser = async (req, res) => {
+     try {
+          const user = await User.findById(req.user.userId).select('-password');
+          res.json({ user });
+     } catch (error) {
+          console.error(error.message);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+module.exports = { registerUser, loginUser , getCurrentUser };      
