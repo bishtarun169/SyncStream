@@ -30,14 +30,14 @@ export default function Hero() {
           <div className="flex flex-col sm:flex-row gap-4 mt-10">
 
             <Link
-              to="/register"
+              to="/create-room"
               className="bg-red-600 px-8 py-4 rounded-2xl text-center text-base sm:text-lg font-semibold hover:bg-red-700 transition"
             >
               Create Room
             </Link>
 
             <Link
-              to="/login"
+              to="/join-room"
               className="bg-zinc-800 px-8 py-4 rounded-2xl text-center text-base sm:text-lg font-semibold hover:bg-zinc-700 transition"
             >
               Join Room
