@@ -2,7 +2,7 @@ const express = require('express');
 
 const router = express.Router();
 
-const { registerUser , loginUser, getCurrentUser , verifyOTP , resendOTP} = require('../controllers/authController');
+const { registerUser , loginUser, getCurrentUser, updateUser, deleteUser, verifyOTP, resendOTP } = require('../controllers/authController');
 const authMiddle = require('../middleware/authMiddleware');
 const sendOTPEmail = require('../utils/sendEmail');
 
@@ -30,5 +30,15 @@ router.post('/resend-otp', resendOTP);
 //@desc    Get current user info
 //@access  Private
 router.get('/me', authMiddle, getCurrentUser);
+
+//@route   PUT /api/auth/update
+//@desc    Update user details
+//@access  Private
+router.put('/update', authMiddle, updateUser);
+
+//@route   DELETE /api/auth/delete
+//@desc    Delete user account
+//@access  Private
+router.delete('/delete', authMiddle, deleteUser);
 
 module.exports = router; 

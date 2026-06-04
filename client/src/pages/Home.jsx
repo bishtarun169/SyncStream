@@ -1,0 +1,1071 @@
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  FaUser,
+  FaPlus,
+  FaSignInAlt,
+  FaSignOutAlt,
+  FaClock,
+  FaTv,
+  FaHistory,
+  FaCog,
+  FaCalendarAlt,
+  FaUsers,
+  FaTrash,
+  FaEdit,
+  FaUserPlus,
+  FaTimes,
+  FaCamera,
+  FaMoon,
+  FaSun,
+  FaDesktop,
+  FaGlobe,
+  FaLock,
+  FaBell,
+} from "react-icons/fa";
+
+export default function Home() {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("dashboard"); // "dashboard" or "profile"
+  
+  // User profile state
+  const [user, setUser] = useState({
+    name: "Loading...",
+    email: "Loading...",
+    profilePic: "",
+    createdAt: "",
+    settings: {
+      theme: "dark",
+      allowJoinRequests: "everyone",
+    }
+  });
+
+  // Friends state
+  const [friends, setFriends] = useState([
+    { name: "Sarah Connor 🍿", status: "online", avatar: "S" },
+    { name: "John Doe 🎬", status: "online", avatar: "J" },
+    { name: "Marcus Wright 🎧", status: "offline", avatar: "M" },
+  ]);
+  const [newFriendName, setNewFriendName] = useState("");
+
+  // Dropdown states
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: 1, sender: "Sarah Connor", text: "invited you to watch: Interstellar Night 🌌", room: "SM-NOLAN-99" },
+    { id: 2, sender: "John Doe", text: "started a new watch room: Lofi Study ☕", room: "SM-LOFI-21" },
+  ]);
+
+  // Edit details states
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editProfilePic, setEditProfilePic] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editError, setEditError] = useState("");
+  const [editSuccess, setEditSuccess] = useState("");
+
+  // Settings states
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsTheme, setSettingsTheme] = useState("dark"); // "dark" | "light" | "system"
+  const [settingsAllowJoinRequests, setSettingsAllowJoinRequests] = useState("everyone"); // "everyone" | "friends"
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsSuccess, setSettingsSuccess] = useState("");
+
+  // System theme listener for "system" default option
+  const [systemTheme, setSystemTheme] = useState("dark");
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateSystemTheme = () => setSystemTheme(media.matches ? "dark" : "light");
+    updateSystemTheme();
+    media.addEventListener("change", updateSystemTheme);
+    return () => media.removeEventListener("change", updateSystemTheme);
+  }, []);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleCloseMenus = (e) => {
+      if (!e.target.closest(".nav-dropdown-trigger")) {
+        setIsNotificationOpen(false);
+        setIsAvatarMenuOpen(false);
+      }
+    };
+    document.addEventListener("click", handleCloseMenus);
+    return () => document.removeEventListener("click", handleCloseMenus);
+  }, []);
+
+  // Compute actual active theme
+  const currentTheme = settingsTheme === "system" ? systemTheme : settingsTheme;
+
+  // Delete modal state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  // Load user data on mount
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/me", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok && data.user) {
+        setUser(data.user);
+        setEditName(data.user.name);
+        setEditProfilePic(data.user.profilePic || "");
+        if (data.user.settings) {
+          setSettingsTheme(data.user.settings.theme || "dark");
+          setSettingsAllowJoinRequests(data.user.settings.allowJoinRequests || "everyone");
+        }
+      } else {
+        console.error("Failed to fetch user:", data.message);
+        localStorage.removeItem("token");
+        navigate("/login");
+      }
+    } catch (err) {
+      console.error("Connection error while fetching profile:", err);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    navigate("/");
+  };
+
+  // Profile image reader (Converts selected file to base64)
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setEditError("Image must be smaller than 2MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditProfilePic(reader.result); // Base64 encoding string
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Submit profile details updates
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    setEditError("");
+    setEditSuccess("");
+
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/update", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editName,
+          profilePic: editProfilePic,
+          password: editPassword || undefined,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setEditSuccess("Profile updated successfully!");
+        setUser(data.user);
+        setEditPassword(""); // Reset password field
+        setTimeout(() => {
+          setIsEditModalOpen(false);
+          setEditSuccess("");
+        }, 1500);
+      } else {
+        setEditError(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      setEditError("Unable to connect to server");
+      console.error(err);
+    }
+  };
+
+  // Submit settings updates
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSettingsError("");
+    setSettingsSuccess("");
+
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/update", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          settings: {
+            theme: settingsTheme,
+            allowJoinRequests: settingsAllowJoinRequests,
+          }
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSettingsSuccess("Settings saved successfully!");
+        setUser(data.user);
+        setTimeout(() => {
+          setIsSettingsModalOpen(false);
+          setSettingsSuccess("");
+        }, 1500);
+      } else {
+        setSettingsError(data.message || "Failed to save settings");
+      }
+    } catch (err) {
+      setSettingsError("Unable to connect to server");
+      console.error(err);
+    }
+  };
+
+  // Delete user account handler
+  const handleDeleteAccount = async () => {
+    setDeleteError("");
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/delete", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        localStorage.removeItem("token");
+        navigate("/");
+      } else {
+        setDeleteError(data.message || "Failed to delete account");
+      }
+    } catch (err) {
+      setDeleteError("Unable to connect to server");
+      console.error(err);
+    }
+  };
+
+  // Add friend handler (interactive mock)
+  const handleAddFriend = (e) => {
+    e.preventDefault();
+    if (!newFriendName.trim()) return;
+
+    // Check if friend already exists
+    if (friends.some(f => f.name.toLowerCase().includes(newFriendName.toLowerCase()))) {
+      alert("This friend is already in your list.");
+      return;
+    }
+
+    const newFriend = {
+      name: newFriendName,
+      status: "online", // Set newly added friends to online for fun
+      avatar: newFriendName.charAt(0).toUpperCase()
+    };
+
+    setFriends([...friends, newFriend]);
+    setNewFriendName("");
+  };
+
+  // Extract online count
+  const onlineCount = friends.filter(f => f.status === "online").length;
+
+  // Format creation date
+  const formatJoinedDate = (isoString) => {
+    if (!isoString) return "June 2026";
+    const date = new Date(isoString);
+    return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  };
+
+  // Mock watch party room details
+  const recentRooms = [
+    {
+      id: "SM-NOLAN-99",
+      name: "Interstellar Night 🌌",
+      movie: "Interstellar (2014)",
+      date: "Yesterday",
+      participants: "4 friends",
+    },
+    {
+      id: "SM-LOFI-21",
+      name: "Morning Lofi Study Session ☕",
+      movie: "Lofi Hip Hop Radio",
+      date: "3 days ago",
+      participants: "8 people",
+    },
+  ];
+
+  const handleJoinNotification = (roomCode) => {
+    navigate("/join-room");
+    setIsNotificationOpen(false);
+  };
+
+  const handleDismissNotification = (id) => {
+    setNotifications(notifications.filter((n) => n.id !== id));
+  };
+
+  // Theme variable configurations
+  const isLight = currentTheme === "light";
+  const bgThemeClass = isLight ? "bg-zinc-50 text-zinc-900" : "bg-[#0f0f13] text-white";
+  const cardThemeClass = isLight ? "bg-white border-zinc-200 text-zinc-900" : "bg-[#18181b]/50 border-zinc-800 text-white";
+  const cardNestedThemeClass = isLight ? "bg-zinc-100/50 border-zinc-200" : "bg-[#18181b]/30 border-zinc-800/60";
+  const inputThemeClass = isLight ? "bg-white border-zinc-300 text-zinc-900 placeholder-zinc-400 focus:border-red-500 focus:ring-red-500/20" : "bg-zinc-900/60 border-zinc-700 text-white focus:border-red-500";
+  const navbarThemeClass = isLight ? "border-b border-zinc-200 bg-white/80" : "border-b border-zinc-800 bg-[#111118]/80";
+  const textMutedClass = isLight ? "text-zinc-500" : "text-zinc-400";
+  const textSubtleClass = isLight ? "text-zinc-650" : "text-zinc-355";
+  const borderSubtleClass = isLight ? "border-zinc-200" : "border-zinc-850";
+  const activeTabClass = isLight ? "bg-white text-zinc-900 shadow-sm border border-zinc-200" : "bg-zinc-800 text-white shadow-md";
+  const inactiveTabClass = isLight ? "text-zinc-500 hover:text-zinc-900" : "text-zinc-400 hover:text-white";
+  const modalThemeClass = isLight ? "bg-white border border-zinc-200" : "bg-[#18181b] border border-zinc-800";
+  const outlineBtnClass = isLight ? "bg-zinc-100 hover:bg-zinc-200 border-zinc-300 text-zinc-800" : "bg-zinc-850 hover:bg-zinc-800 border-zinc-700 hover:border-zinc-600 text-white";
+
+  return (
+    <div className={`min-h-screen ${bgThemeClass} flex flex-col relative overflow-hidden transition-colors duration-300`}>
+      {/* Decorative BG Blur */}
+      <div className="absolute top-[-10%] left-[-15%] w-[60%] h-[60%] bg-red-500/5 rounded-full blur-[140px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-15%] w-[60%] h-[60%] bg-red-500/5 rounded-full blur-[140px] pointer-events-none"></div>
+
+      {/* Navbar */}
+      <nav className={`${navbarThemeClass} backdrop-blur-xl sticky top-0 z-50 transition-colors duration-300`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="h-20 flex items-center justify-between">
+            {/* Logo */}
+            <Link
+              to="/home"
+              className="text-2xl sm:text-3xl font-black tracking-tight"
+            >
+              <span className="text-red-500">Stream</span>Mate
+            </Link>
+
+            {/* Navigation tabs */}
+            <div className={`flex items-center gap-1 ${isLight ? 'bg-zinc-200/50 border border-zinc-300/60' : 'bg-zinc-900/60 border border-zinc-800'} p-1 rounded-xl`}>
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition duration-200 ${
+                  activeTab === "dashboard" ? activeTabClass : inactiveTabClass
+                }`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveTab("profile")}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition duration-200 ${
+                  activeTab === "profile" ? activeTabClass : inactiveTabClass
+                }`}
+              >
+                Profile
+              </button>
+            </div>
+
+            {/* Right side notification & avatar action group */}
+            <div className="flex items-center gap-4 relative">
+              
+              {/* Notification Bell */}
+              <div className="relative nav-dropdown-trigger">
+                <button
+                  onClick={() => {
+                    setIsNotificationOpen(!isNotificationOpen);
+                    setIsAvatarMenuOpen(false);
+                  }}
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all duration-200 cursor-pointer relative ${
+                    isLight 
+                      ? "text-zinc-650 border-zinc-300 hover:bg-zinc-100" 
+                      : "text-zinc-400 border-zinc-800 hover:bg-zinc-900/60"
+                  }`}
+                >
+                  <FaBell size={16} />
+                  {notifications.length > 0 && (
+                    <span className="absolute top-[-3px] right-[-3px] w-4.5 h-4.5 bg-red-600 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-[#0f0f13] shadow-md animate-pulse">
+                      {notifications.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notifications Dropdown Panel */}
+                {isNotificationOpen && (
+                  <div className={`absolute right-0 mt-3 w-80 rounded-2xl p-4 shadow-2xl z-50 border ${modalThemeClass} animate-fadeIn`}>
+                    <div className="flex items-center justify-between border-b pb-2 mb-3 border-zinc-800/10">
+                      <span className="text-xs font-black uppercase tracking-wider">Notifications</span>
+                      <span className="text-[10px] text-red-500 font-bold">{notifications.length} New</span>
+                    </div>
+                    
+                    {notifications.length === 0 ? (
+                      <div className={`text-center py-6 text-xs ${textMutedClass}`}>
+                        No new notifications.
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[250px] overflow-y-auto custom-scrollbar">
+                        {notifications.map((n) => (
+                          <div key={n.id} className={`p-3 rounded-xl border flex flex-col gap-2 transition duration-200 ${
+                            isLight ? "bg-zinc-50 border-zinc-200" : "bg-zinc-905/30 border-zinc-850"
+                          }`}>
+                            <div className="text-xs">
+                              <span className="font-bold text-red-500 block">{n.sender}</span>
+                              <span className={isLight ? "text-zinc-600" : "text-zinc-300"}>{n.text}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleJoinNotification(n.room)}
+                                className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition flex-1 cursor-pointer"
+                              >
+                                Join
+                              </button>
+                              <button
+                                onClick={() => handleDismissNotification(n.id)}
+                                className={`text-[10px] px-3 py-1.5 rounded-lg border transition flex-1 cursor-pointer ${
+                                  isLight ? "bg-zinc-100 hover:bg-zinc-200 border-zinc-300 text-zinc-700" : "bg-zinc-800 hover:bg-zinc-750 border-zinc-700 text-zinc-300"
+                                }`}
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Profile Avatar Circle & Menu Dropdown */}
+              <div className="relative nav-dropdown-trigger">
+                <button
+                  onClick={() => {
+                    setIsAvatarMenuOpen(!isAvatarMenuOpen);
+                    setIsNotificationOpen(false);
+                  }}
+                  className="w-10 h-10 rounded-full overflow-hidden border border-zinc-700 hover:border-red-500 transition-all duration-200 cursor-pointer shadow-md flex items-center justify-center bg-zinc-900"
+                >
+                  {user.profilePic ? (
+                    <img src={user.profilePic} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-red-600/10 text-red-500 flex items-center justify-center font-black text-sm">
+                      {user.name ? user.name.charAt(0) : "U"}
+                    </div>
+                  )}
+                </button>
+
+                {/* Profile Dropdown Panel */}
+                {isAvatarMenuOpen && (
+                  <div className={`absolute right-0 mt-3 w-56 rounded-2xl p-4 shadow-2xl z-50 border ${modalThemeClass} animate-fadeIn`}>
+                    <div className="border-b pb-3 mb-2 border-zinc-800/10">
+                      <span className="text-xs font-extrabold block truncate">{user.name}</span>
+                      <span className={`text-[10px] block truncate ${textMutedClass}`}>{user.email}</span>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => {
+                          setActiveTab("profile");
+                          setIsAvatarMenuOpen(false);
+                        }}
+                        className={`w-full text-left py-2 px-3 rounded-lg text-xs font-semibold flex items-center gap-2 transition duration-200 ${
+                          isLight ? "hover:bg-zinc-100 text-zinc-800" : "hover:bg-zinc-800 text-zinc-300"
+                        }`}
+                      >
+                        <FaUser size={12} className="text-red-500" /> Go to Profile
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsSettingsModalOpen(true);
+                          setIsAvatarMenuOpen(false);
+                        }}
+                        className={`w-full text-left py-2 px-3 rounded-lg text-xs font-semibold flex items-center gap-2 transition duration-200 ${
+                          isLight ? "hover:bg-zinc-100 text-zinc-800" : "hover:bg-zinc-800 text-zinc-300"
+                        }`}
+                      >
+                        <FaCog size={12} className="text-red-500" /> Open Settings
+                      </button>
+                      <hr className={`${isLight ? 'border-zinc-200' : 'border-zinc-800/30'} my-2`} />
+                      <button
+                        onClick={handleLogout}
+                        className={`w-full text-left py-2 px-3 rounded-lg text-xs font-semibold flex items-center gap-2 transition duration-200 text-red-500 ${
+                          isLight ? "hover:bg-red-50/50" : "hover:bg-red-500/10"
+                        }`}
+                      >
+                        <FaSignOutAlt size={12} /> Log Out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Container */}
+      <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 py-10 relative z-10">
+        
+        {activeTab === "dashboard" ? (
+          /* =================== DASHBOARD TAB =================== */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            {/* Left Content Area: Welcome + Actions + History (Lg: 8 cols) */}
+            <div className="lg:col-span-8 space-y-10">
+              
+              {/* User welcome banner */}
+              <div className={`border p-8 rounded-3xl relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? "bg-gradient-to-r from-red-500/5 to-zinc-100 border-zinc-200" 
+                  : "bg-gradient-to-r from-red-950/20 to-zinc-900 border-zinc-800/80"
+              }`}>
+                <div className="relative z-10 max-w-xl space-y-2">
+                  <span className="inline-block px-3 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-semibold">
+                    🍿 Active Streamer
+                  </span>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+                    Welcome back, <span className="text-red-500">{user.name}</span>!
+                  </h2>
+                  <p className={`${textMutedClass} text-sm sm:text-base leading-relaxed`}>
+                    Ready to watch some movies? Create a room and invite your friends, or join an active room with a code.
+                  </p>
+                </div>
+                <div className="absolute right-[-5%] bottom-[-20%] text-red-500/[0.03] text-[200px] font-black select-none pointer-events-none hidden lg:block">
+                  STREAM
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* Create Room Card */}
+                <div className={`${cardThemeClass} p-6 rounded-3xl hover:border-zinc-500/40 transition duration-300 flex flex-col justify-between space-y-5 group shadow-lg`}>
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center text-red-500 border border-red-500/20">
+                      <FaPlus size={16} />
+                    </div>
+                    <h3 className="text-xl font-bold group-hover:text-red-500 transition duration-200">
+                      Create Watch Room
+                    </h3>
+                    <p className={`${textMutedClass} text-xs sm:text-sm leading-relaxed`}>
+                      Start a brand new watch party. Choose your room name, paste the movie stream link, and invite friends.
+                    </p>
+                  </div>
+                  <Link
+                    to="/create-room"
+                    className="bg-red-600 hover:bg-red-700 py-3 rounded-xl font-semibold text-center text-sm text-white transition duration-200 shadow-md cursor-pointer"
+                  >
+                    Create Room
+                  </Link>
+                </div>
+
+                {/* Join Room Card */}
+                <div className={`${cardThemeClass} p-6 rounded-3xl hover:border-zinc-500/40 transition duration-300 flex flex-col justify-between space-y-5 group shadow-lg`}>
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center text-red-500 border border-red-500/20">
+                      <FaSignInAlt size={16} />
+                    </div>
+                    <h3 className="text-xl font-bold group-hover:text-red-500 transition duration-200">
+                      Join Watch Room
+                    </h3>
+                    <p className={`${textMutedClass} text-xs sm:text-sm leading-relaxed`}>
+                      Have a code from a friend? Enter it here to hop directly into their synchronized watch room.
+                    </p>
+                  </div>
+                  <Link
+                    to="/join-room"
+                    className={`${outlineBtnClass} py-3 rounded-xl font-semibold text-center text-sm transition duration-200 shadow-md cursor-pointer`}
+                  >
+                    Join Room
+                  </Link>
+                </div>
+              </div>
+
+              {/* History list */}
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <FaHistory className="text-red-500" size={16} />
+                  Recent Watch Parties
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {recentRooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className={`${cardNestedThemeClass} p-5 rounded-2xl flex items-center justify-between border ${isLight ? 'border-zinc-200' : 'border-zinc-800/40'}`}
+                    >
+                      <div className="space-y-1 max-w-[70%]">
+                        <h4 className="font-bold text-sm truncate">{room.name}</h4>
+                        <p className={`${textMutedClass} text-[11px] truncate`}>Playing: {room.movie}</p>
+                        <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-[10px] flex items-center gap-1.5 mt-2`}>
+                          <FaClock size={8} /> {room.date} • {room.participants}
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg ${isLight ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-800 text-zinc-300'}`}>
+                        {room.id}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Right Side Column: Friends List Dashboard Panel (Lg: 4 cols) */}
+            <div className={`lg:col-span-4 ${cardThemeClass} p-6 rounded-3xl space-y-6 shadow-xl w-full`}>
+              <div className={`flex items-center justify-between border-b ${borderSubtleClass} pb-4`}>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <FaUsers className="text-red-500" size={18} /> Friends List
+                </h3>
+                <span className="text-xs font-semibold px-2.5 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded-full">
+                  {onlineCount} Online
+                </span>
+              </div>
+
+              {/* Search Add Friend Form */}
+              <form onSubmit={handleAddFriend} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Enter username..."
+                  value={newFriendName}
+                  onChange={(e) => setNewFriendName(e.target.value)}
+                  className={`flex-grow rounded-xl px-3 py-2 text-xs outline-none transition border ${inputThemeClass}`}
+                />
+                <button
+                  type="submit"
+                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-xl transition cursor-pointer text-xs flex items-center gap-1.5 font-bold"
+                >
+                  <FaUserPlus size={12} /> Add
+                </button>
+              </form>
+
+              {/* Friends items scroll list */}
+              <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+                {friends.map((friend, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center justify-between p-3 rounded-xl border transition duration-200 ${
+                      isLight 
+                        ? 'bg-zinc-50 border-zinc-100 hover:bg-zinc-100' 
+                        : 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-900/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-extrabold flex items-center justify-center">
+                        {friend.avatar}
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block">
+                          {friend.name}
+                        </span>
+                        <span className={`${textMutedClass} text-[10px] flex items-center gap-1`}>
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              friend.status === "online" ? "bg-green-500" : "bg-zinc-500"
+                            }`}
+                          ></span>
+                          {friend.status === "online" ? "Online" : "Offline"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          /* =================== PROFILE TAB =================== */
+          <div className="max-w-3xl mx-auto space-y-8">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-extrabold tracking-tight">Your Profile</h2>
+                <p className={`${textMutedClass} text-sm mt-1`}>Manage your account information and preferences.</p>
+              </div>
+              <button
+                onClick={() => setIsEditModalOpen(true)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 border transition cursor-pointer ${
+                  isLight 
+                    ? 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-855' 
+                    : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white'
+                }`}
+              >
+                <FaEdit size={14} /> Edit Details
+              </button>
+            </div>
+
+            {/* Profile Detail Card */}
+            <div className={`${cardThemeClass} p-8 sm:p-10 rounded-3xl shadow-xl flex flex-col sm:flex-row gap-8 items-center sm:items-start relative overflow-hidden`}>
+              
+              {/* Profile Avatar Grid */}
+              <div className="relative group">
+                {user.profilePic ? (
+                  <img
+                    src={user.profilePic}
+                    alt={user.name}
+                    className="w-24 h-24 rounded-3xl object-cover border border-zinc-300 shadow-inner"
+                  />
+                ) : (
+                  <div className="w-24 h-24 rounded-3xl bg-red-600/10 border border-red-500/20 text-red-500 flex items-center justify-center text-4xl font-extrabold shadow-inner">
+                    {user.name ? user.name.charAt(0) : "U"}
+                  </div>
+                )}
+              </div>
+
+              {/* Profile Info Details */}
+              <div className="flex-grow space-y-6 text-center sm:text-left">
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-bold">{user.name}</h3>
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                    <span className="px-3 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-semibold">
+                      Premium Member
+                    </span>
+                    <span className={`text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-505'} flex items-center gap-1`}>
+                      <FaCalendarAlt size={10} /> Joined {formatJoinedDate(user.createdAt)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Form fields displays */}
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 border-t ${isLight ? 'border-zinc-200' : 'border-zinc-800/80'} pt-6`}>
+                  <div>
+                    <span className={`text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-505'} uppercase tracking-wider block`}>Email Address</span>
+                    <span className={`${textSubtleClass} text-sm sm:text-base font-medium`}>{user.email}</span>
+                  </div>
+                  <div>
+                    <span className={`text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-505'} uppercase tracking-wider block`}>Status Code</span>
+                    <span className={`${textSubtleClass} text-sm sm:text-base font-medium`}>Active Streamer 🍿</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Watch History Metrics */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
+                <div className="text-red-500 flex justify-center"><FaTv size={18} /></div>
+                <h4 className="text-xl sm:text-2xl font-extrabold">12</h4>
+                <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Rooms Created</p>
+              </div>
+
+              <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
+                <div className="text-red-500 flex justify-center"><FaSignInAlt size={18} /></div>
+                <h4 className="text-xl sm:text-2xl font-extrabold">45</h4>
+                <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Rooms Joined</p>
+              </div>
+
+              <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
+                <div className="text-red-500 flex justify-center"><FaClock size={18} /></div>
+                <h4 className="text-xl sm:text-2xl font-extrabold">34.5h</h4>
+                <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Hours Watched</p>
+              </div>
+            </div>
+
+            {/* Profile Action Settings */}
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setIsSettingsModalOpen(true)}
+                className={`flex-1 py-3.5 rounded-xl border font-semibold text-center text-sm transition duration-200 flex items-center justify-center gap-2 ${outlineBtnClass}`}
+              >
+                <FaCog /> Settings
+              </button>
+              <button 
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="flex-1 border border-red-500/20 hover:border-red-500 hover:bg-red-500/10 py-3.5 rounded-xl font-semibold text-center text-sm text-red-400 hover:text-white transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <FaTrash /> Delete Account
+              </button>
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* =================== EDIT PROFILE MODAL =================== */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+          <div className={`w-full max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl relative ${modalThemeClass}`}>
+            <button
+              onClick={() => setIsEditModalOpen(false)}
+              className={`absolute right-4 top-4 ${textMutedClass} hover:text-red-500`}
+            >
+              <FaTimes size={16} />
+            </button>
+
+            <h3 className="text-2xl font-bold">Edit Profile Details</h3>
+            <p className={`${textMutedClass} text-xs sm:text-sm mt-1`}>
+              Update your nickname and profile avatar. You cannot edit your email.
+            </p>
+
+            <form onSubmit={handleUpdateProfile} className="mt-6 space-y-5">
+              {/* Profile Avatar Upload preview & input */}
+              <div className="flex items-center gap-4">
+                <div className={`relative group w-16 h-16 rounded-2xl overflow-hidden border flex items-center justify-center flex-shrink-0 ${isLight ? 'bg-zinc-100 border-zinc-300' : 'bg-zinc-900/60 border-zinc-700'}`}>
+                  {editProfilePic ? (
+                    <img src={editProfilePic} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <FaUser className="text-zinc-500" size={24} />
+                  )}
+                  <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition duration-200">
+                    <FaCamera size={14} className="text-white" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <div className="text-xs">
+                  <span className="font-bold block">Avatar Picture</span>
+                  <span className={textMutedClass}>Max size: 2MB. Click preview avatar box to upload.</span>
+                </div>
+              </div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <label className={`text-xs font-semibold ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>Display Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-sm outline-none transition border ${inputThemeClass}`}
+                />
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label className={`text-xs font-semibold ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>New Password (Optional)</label>
+                <input
+                  type="password"
+                  placeholder="Enter new password to change"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-sm outline-none transition border ${inputThemeClass}`}
+                />
+              </div>
+
+              {/* Alerts */}
+              {editError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-2.5 text-xs">
+                  {editError}
+                </div>
+              )}
+              {editSuccess && (
+                <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-4 py-2.5 text-xs">
+                  {editSuccess}
+                </div>
+              )}
+
+              {/* CTA Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold border transition cursor-pointer ${
+                    isLight 
+                      ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-300 text-zinc-700' 
+                      : 'bg-zinc-800 hover:bg-zinc-750 border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-red-600 hover:bg-red-700 py-3 rounded-xl text-sm font-semibold transition cursor-pointer shadow-md shadow-red-500/10 text-white"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================== USER SETTINGS MODAL =================== */}
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+          <div className={`w-full max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl relative ${modalThemeClass}`}>
+            <button
+              onClick={() => setIsSettingsModalOpen(false)}
+              className={`absolute right-4 top-4 ${textMutedClass} hover:text-red-500`}
+            >
+              <FaTimes size={16} />
+            </button>
+
+            <h3 className="text-2xl font-bold">Preferences Settings</h3>
+            <p className={`${textMutedClass} text-xs sm:text-sm mt-1`}>
+              Personalize your theme and room visibility options.
+            </p>
+
+            <form onSubmit={handleSaveSettings} className="mt-6 space-y-6">
+              
+              {/* Theme Settings Selection */}
+              <div className="space-y-3">
+                <label className="text-xs font-semibold uppercase tracking-wider block text-zinc-500">
+                  Theme Preference
+                </label>
+                <div className={`grid grid-cols-3 gap-2 border p-1 rounded-xl ${isLight ? 'bg-zinc-100 border-zinc-250' : 'bg-zinc-900/60 border-zinc-800'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTheme("dark")}
+                    className={`py-2 rounded-lg text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition duration-200 ${
+                      settingsTheme === "dark"
+                        ? "bg-red-600 text-white shadow-md font-bold"
+                        : isLight ? "text-zinc-555 hover:text-zinc-900" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FaMoon size={11} /> Dark
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTheme("light")}
+                    className={`py-2 rounded-lg text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition duration-200 ${
+                      settingsTheme === "light"
+                        ? "bg-red-600 text-white shadow-md font-bold"
+                        : isLight ? "text-zinc-555 hover:text-zinc-900" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FaSun size={11} /> Light
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTheme("system")}
+                    className={`py-2 rounded-lg text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition duration-200 ${
+                      settingsTheme === "system"
+                        ? "bg-red-600 text-white shadow-md font-bold"
+                        : isLight ? "text-zinc-555 hover:text-zinc-900" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FaDesktop size={10} /> System
+                  </button>
+                </div>
+              </div>
+
+              {/* Join Requests Privacy Preferences */}
+              <div className="space-y-3">
+                <label className="text-xs font-semibold uppercase tracking-wider block text-zinc-500">
+                  Allow Join Requests From
+                </label>
+                <div className={`grid grid-cols-2 gap-2 border p-1 rounded-xl ${isLight ? 'bg-zinc-100 border-zinc-250' : 'bg-zinc-900/60 border-zinc-800'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsAllowJoinRequests("everyone")}
+                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition duration-200 ${
+                      settingsAllowJoinRequests === "everyone"
+                        ? "bg-red-600 text-white shadow-md font-bold"
+                        : isLight ? "text-zinc-555 hover:text-zinc-900" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FaGlobe size={12} /> Everyone
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsAllowJoinRequests("friends")}
+                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition duration-200 ${
+                      settingsAllowJoinRequests === "friends"
+                        ? "bg-red-600 text-white shadow-md font-bold"
+                        : isLight ? "text-zinc-555 hover:text-zinc-900" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FaLock size={11} /> Friends Only
+                  </button>
+                </div>
+              </div>
+
+              {/* Alerts */}
+              {settingsError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-2.5 text-xs">
+                  {settingsError}
+                </div>
+              )}
+              {settingsSuccess && (
+                <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-4 py-2.5 text-xs">
+                  {settingsSuccess}
+                </div>
+              )}
+
+              {/* CTA Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsModalOpen(false)}
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold border transition cursor-pointer ${
+                    isLight 
+                      ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-300 text-zinc-700' 
+                      : 'bg-zinc-800 hover:bg-zinc-750 border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-red-600 hover:bg-red-700 py-3 rounded-xl text-sm font-semibold transition cursor-pointer shadow-md shadow-red-500/10 text-white"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================== DELETE ACCOUNT CONFIRMATION MODAL =================== */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+          <div className={`w-full max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl relative ${modalThemeClass}`}>
+            <h3 className="text-2xl font-bold flex items-center gap-2">
+              <FaTrash className="text-red-500" size={20} /> Delete Account?
+            </h3>
+            
+            <p className={`${textMutedClass} text-sm mt-3 leading-relaxed`}>
+              Are you absolutely sure you want to delete your StreamMate account? This action is permanent and cannot be undone. All your room listings and user settings will be completely wiped.
+            </p>
+
+            {deleteError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-3 text-xs mt-4">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-6">
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                className={`flex-grow py-3 rounded-xl text-sm font-semibold border transition cursor-pointer ${
+                  isLight 
+                    ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-300 text-zinc-700' 
+                    : 'bg-zinc-800 hover:bg-zinc-750 border-zinc-700 text-zinc-300'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                className="flex-grow bg-red-600 hover:bg-red-700 py-3 rounded-xl text-sm font-semibold transition cursor-pointer shadow-md shadow-red-500/10 text-white"
+              >
+                Delete Forever
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

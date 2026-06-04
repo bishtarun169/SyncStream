@@ -31,6 +31,22 @@ const userSchema = new mongoose.Schema({
     type: Date,
   },
 
+  profilePic: {
+    type: String,
+    default: "",
+  },
+  
+  settings: {
+    theme: {
+      type: String,
+      default: "dark",
+    },
+
+    allowJoinRequests: {
+      type: String,
+      default: "everyone",
+    },
+  },
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
