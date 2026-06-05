@@ -182,25 +182,47 @@ const getCurrentUser = async (req, res) => {
      }
 };
 
-module.exports = { registerUser, loginUser , getCurrentUser, verifyOTP, resendOTP };      
 // Update user details (name, profile picture, optional password)
 const updateUser = async (req, res) => {
      try {
-          const { name, profilePic, password, settings } = req.body;
+          const { name, profilePic, password, settings, gender, bio, location, birthday, otp } = req.body;
           const updates = {};
           if (name) updates.name = name;
           if (profilePic !== undefined) updates.profilePic = profilePic;
           if (settings !== undefined) updates.settings = settings;
+          if (gender !== undefined) updates.gender = gender;
+          if (bio !== undefined) updates.bio = bio;
+          if (location !== undefined) updates.location = location;
+          if (birthday !== undefined) updates.birthday = birthday;
 
           if (password) {
+               if (!otp) {
+                    return res.status(400).json({ message: 'OTP is required to change password' });
+               }
+
+               const user = await User.findById(req.user.userId);
+               if (!user) {
+                    return res.status(400).json({ message: 'User not found' });
+               }
+
+               if (!user.otp || user.otp !== otp) {
+                    return res.status(400).json({ message: 'Invalid OTP code' });
+               }
+
+               if (user.otpExpiry < new Date()) {
+                    return res.status(400).json({ message: 'OTP has expired' });
+               }
+
                const salt = await bcrypt.genSalt(10);
                updates.password = await bcrypt.hash(password, salt);
+               updates.otp = null;
+               updates.otpExpiry = null;
           }
 
           const user = await User.findByIdAndUpdate(
                req.user.userId,
                { $set: updates },
-               { new: true }
+               { returnDocument: 'after' }
           ).select('-password');
 
           res.json({ message: 'Profile updated successfully', user });
@@ -285,6 +307,30 @@ const resetPassword = async (req, res) => {
      }
 };
 
+// Request an OTP code to authorize a password change (for authenticated users)
+const requestPasswordOTP = async (req, res) => {
+     try {
+          const user = await User.findById(req.user.userId);
+          if (!user) {
+               return res.status(400).json({ message: 'User not found' });
+          }
+
+          const otp = Math.floor(100000 + Math.random() * 900000).toString();
+          const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+          user.otp = otp;
+          user.otpExpiry = otpExpiry;
+          await user.save();
+
+          await sendOTPEmail(user.email, otp);
+
+          res.status(200).json({ message: 'Verification code sent to your email.' });
+     } catch (error) {
+          console.error("ERROR in requestPasswordOTP:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
 module.exports = { 
      registerUser, 
      loginUser, 
@@ -294,5 +340,6 @@ module.exports = {
      verifyOTP, 
      resendOTP,
      forgotPassword,
-     resetPassword
+     resetPassword,
+     requestPasswordOTP
 };
