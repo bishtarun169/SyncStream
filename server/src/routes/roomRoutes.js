@@ -2,7 +2,7 @@ const express = require('express');
 
 const router = express.Router();
 
-const { createRoom, joinRoom , leaveRoom , getRoom, getParticipants} = require('../controllers/roomController');
+const { createRoom, joinRoom , leaveRoom , getRoom, getParticipants, getRoomByCode} = require('../controllers/roomController');
 const authMiddle = require('../middleware/authMiddleware');
 
 // @route   POST /api/rooms/create
@@ -30,5 +30,10 @@ router.get('/:id', authMiddle, getRoom);
 // @desc    Get participants of a room
 // @access  Private
 router.get('/:id/participants', authMiddle, getParticipants);
+
+// @route   GET /api/rooms/code/:roomCode
+// @desc    Get room details by room code
+// @access  Private
+router.get('/code/:roomCode', authMiddle, getRoomByCode);
 
 module.exports = router; 

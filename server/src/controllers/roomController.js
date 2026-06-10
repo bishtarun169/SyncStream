@@ -11,12 +11,12 @@ const createRoom = async (req, res) => {
           // Valid Room name
           if (!roomName) {
                return res.status(400).json({ message: 'Room name are required' });
-          }   
+          }
 
           // Media source validation
           if (!mediaSource) {
                return res.status(400).json({ message: 'Media source is required' });
-          }    
+          }
 
           // Valid video URL
           if (!videoURL) {
@@ -93,7 +93,7 @@ const joinRoom = async (req, res) => {
           // Check if room is full
           if (room.participants.length >= room.maxParticipants) {
                return res.status(400).json({ message: 'Room is full' });
-          }    
+          }
 
           // Add user to participants
           room.participants.push([{
@@ -103,7 +103,7 @@ const joinRoom = async (req, res) => {
 
           await room.save();
 
-          res.status(200).json({ 
+          res.status(200).json({
                message: 'Joined room successfully',
                roomCode: room.roomCode,
                roomName: room.roomName,
@@ -119,71 +119,71 @@ const joinRoom = async (req, res) => {
 
 // Leave a room
 const leaveRoom = async (req, res) => {
-    try {
-        const roomId = req.params.id;
-        const userId = req.user.userId;
+     try {
+          const roomId = req.params.id;
+          const userId = req.user.userId;
 
-        const room = await Room.findById(roomId);
+          const room = await Room.findById(roomId);
 
-        if (!room) {
-            return res.status(404).json({
-                message: "Room not found"
-            });
-        }
+          if (!room) {
+               return res.status(404).json({
+                    message: "Room not found"
+               });
+          }
 
-        if (room.host.toString() === userId) {
-            await Room.findByIdAndDelete(roomId);
+          if (room.host.toString() === userId) {
+               await Room.findByIdAndDelete(roomId);
 
-            return res.status(200).json({
-                message: "Host left. Room deleted."
-            });
-        }
+               return res.status(200).json({
+                    message: "Host left. Room deleted."
+               });
+          }
 
-        room.participants = room.participants.filter(
-            participant => participant.user.toString() !== userId
-        );
+          room.participants = room.participants.filter(
+               participant => participant.user.toString() !== userId
+          );
 
-        await room.save();
+          await room.save();
 
-        res.status(200).json({
-            message: "Left room successfully"
-        });
+          res.status(200).json({
+               message: "Left room successfully"
+          });
 
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            message: "Server error"
-        });
-    }
+     } catch (error) {
+          console.error(error);
+          res.status(500).json({
+               message: "Server error"
+          });
+     }
 };
 
 // Get room details by ID
 const getRoom = async (req, res) => {
-    try {
+     try {
           const roomId = req.params.id;
-        const room = await Room.findById(roomId)
-            .populate('host', 'username email')
-            .populate('participants.user', 'username email');
+          const room = await Room.findById(roomId)
+               .populate('host', 'username email')
+               .populate('participants.user', 'username email');
 
-        if (!room) {
-            return res.status(404).json({
-                message: 'Room not found'
-            });
-        }
+          if (!room) {
+               return res.status(404).json({
+                    message: 'Room not found'
+               });
+          }
 
-        res.status(200).json(room);
+          res.status(200).json(room);
 
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            message: 'Server error'
-        });
-    }
+     } catch (error) {
+          console.error(error);
+          res.status(500).json({
+               message: 'Server error'
+          });
+     }
 };
 
 // Get participants of a room
 const getParticipants = async (req, res) => {
-    try {
+     try {
           const roomId = req.params.id;
           const room = await Room.findById(roomId)
                .populate('host', 'username')
@@ -206,7 +206,26 @@ const getParticipants = async (req, res) => {
           res.status(500).json({
                message: 'Server error'
           });
-    }
-};   
+     }
+};
 
-module.exports = {createRoom, joinRoom, leaveRoom , getRoom, getParticipants};
+const getRoomByCode = async (req, res) => {
+     try {
+          const room = await Room.findOne({
+               roomCode: req.params.roomCode
+          });
+
+          if (!room) {
+               return res.status(404).json({
+                    message: "Room not found"
+               });
+          }
+          res.json(room);
+     } catch (error) {
+          console.error(error);
+          res.status(500).json({
+               message: "Server error"
+          });
+     }
+};
+module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getParticipants, getRoomByCode };
