@@ -4,13 +4,19 @@ const bcrypt = require('bcryptjs');
 
 // Create a new room
 const createRoom = async (req, res) => {
+     console.log("Room created");
      try {
-          const { roomName, videoURL, privacy, password } = req.body;
+          const { roomName, videoURL, privacy, password, maxParticipants, mediaSource } = req.body;
           const hostId = req.user.userId;
           // Valid Room name
           if (!roomName) {
                return res.status(400).json({ message: 'Room name are required' });
           }   
+
+          // Media source validation
+          if (!mediaSource) {
+               return res.status(400).json({ message: 'Media source is required' });
+          }    
 
           // Valid video URL
           if (!videoURL) {
@@ -36,12 +42,20 @@ const createRoom = async (req, res) => {
                videoURL,
                privacy,
                password: hashedPassword,
+               maxParticipants,
+               mediaSource,
                host: hostId,
                roomCode,
-               participants: [req.user.userId], // Host is the first participant
+               participants: [{
+                    user: hostId,
+                    role: 'host'
+               }]
           });
 
+          console.log("before save");
           await room.save();
+          console.log("Room saved");
+
           res.status(201).json({ message: 'Room created successfully', room });
      } catch (error) {
           console.error(error.message);
@@ -76,9 +90,17 @@ const joinRoom = async (req, res) => {
                     return res.status(400).json({ message: 'Incorrect password' });
                }
           }
+          // Check if room is full
+          if (room.participants.length >= room.maxParticipants) {
+               return res.status(400).json({ message: 'Room is full' });
+          }    
 
           // Add user to participants
-          room.participants.push(userId);
+          room.participants.push([{
+               user: userId,
+               role: 'member'
+          }]);
+
           await room.save();
 
           res.status(200).json({ 
@@ -118,7 +140,7 @@ const leaveRoom = async (req, res) => {
         }
 
         room.participants = room.participants.filter(
-            participant => participant.toString() !== userId
+            participant => participant.user.toString() !== userId
         );
 
         await room.save();
@@ -138,9 +160,10 @@ const leaveRoom = async (req, res) => {
 // Get room details by ID
 const getRoom = async (req, res) => {
     try {
-        const room = await Room.findById(req.params.id)
+          const roomId = req.params.id;
+        const room = await Room.findById(roomId)
             .populate('host', 'username email')
-            .populate('participants', 'username');
+            .populate('participants.user', 'username email');
 
         if (!room) {
             return res.status(404).json({
@@ -161,9 +184,10 @@ const getRoom = async (req, res) => {
 // Get participants of a room
 const getParticipants = async (req, res) => {
     try {
+          const roomId = req.params.id;
           const room = await Room.findById(roomId)
                .populate('host', 'username')
-               .populate('participants', 'username email');
+               .populate('participants.user', 'username email');
 
           if (!room) {
                return res.status(404).json({

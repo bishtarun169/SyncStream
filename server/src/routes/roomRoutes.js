@@ -8,12 +8,12 @@ const authMiddle = require('../middleware/authMiddleware');
 // @route   POST /api/rooms/create
 // @desc    Create a new room
 // @access  Private
-router.post('/create', authMiddle, createRoom);
+router.post('/create-room', authMiddle, createRoom);
 
 // @route   GET /api/rooms
 // @desc    Get all rooms for the current user
 // @access  Private
-router.post('/join', authMiddle, joinRoom);
+router.post('/join-room', authMiddle, joinRoom);
 
 
 // @route   POST /api/rooms/:id/leave

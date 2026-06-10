@@ -22,31 +22,66 @@ export default function CreateRoom() {
     return parts.length > 1 ? parts[1].split(/[?#]/)[0] : null;
   };
 
-  const handleSubmit = (e) => {
+  // Loading state
+  const [loading, setLoading] = useState(false);
+
+  // Create room using backend API
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    try {
+      setLoading(true);
+      // Normalize URL before sending
+      let resolvedUrl = mediaUrl.trim();
+      if (mediaSource === "youtube") {
+        const ytid = extractYouTubeId(resolvedUrl);
+        if (ytid) resolvedUrl = ytid;
+      } else if (mediaSource === "twitch") {
+        const channel = extractTwitchChannel(resolvedUrl);
+        if (channel) resolvedUrl = channel;
+      }
 
-    let resolvedUrl = mediaUrl.trim();
-    if (mediaSource === "youtube") {
-      const ytid = extractYouTubeId(resolvedUrl);
-      if (ytid) resolvedUrl = ytid;
-    } else if (mediaSource === "twitch") {
-      const twch = extractTwitchChannel(resolvedUrl);
-      if (twch) resolvedUrl = twch;
+      const token = localStorage.getItem("token");
+
+      // Call backend create room API
+      const response = await fetch(
+        "http://localhost:5000/api/rooms/create-room",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            roomName,
+            videoURL: resolvedUrl,
+            privacy,
+            password,
+            maxParticipants,
+            mediaSource,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to create room");
+      }
+
+      console.log("Room created:", data);
+
+      // Backend generated room code
+      const roomCode = data.room.roomCode;
+
+      // Redirect to actual room
+      navigate(`/room/${roomCode}`);
+
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
-
-    console.log("Creating room:", { roomName, maxParticipants, privacy, password, mediaSource, mediaUrl: resolvedUrl });
-    const generatedCode = 'SM-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    // Redirect to active room
-    navigate(`/room/${generatedCode}`, { 
-      state: { 
-        roomName, 
-        maxParticipants, 
-        isCreator: true,
-        initialMediaSource: mediaSource,
-        initialMediaUrl: resolvedUrl
-      } 
-    });
   };
 
   return (
@@ -56,7 +91,7 @@ export default function CreateRoom() {
       <div className="absolute bottom-[10%] right-[-15%] w-[60%] h-[60%] bg-red-500/5 rounded-full blur-[140px] pointer-events-none"></div>
 
       <div className="max-w-6xl w-full relative z-10 flex flex-col gap-12">
-        
+
         {/* Navigation & Header */}
         <div className="self-start">
           <Link
@@ -75,11 +110,11 @@ export default function CreateRoom() {
 
         {/* Main Grid: Form Left, Hosting Guidelines Right */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          
+
           {/* Form Card (Lg: 7 Cols) */}
           <div className="lg:col-span-7 bg-[#18181b]/80 backdrop-blur-md p-8 sm:p-10 rounded-3xl border border-zinc-800 shadow-2xl">
             <form onSubmit={handleSubmit} className="space-y-6">
-              
+
               {/* Room Name */}
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
@@ -118,93 +153,81 @@ export default function CreateRoom() {
                   Select Watch Source
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  
+
                   {/* YouTube Button */}
                   <button
                     type="button"
                     onClick={() => { setMediaSource("youtube"); setMediaUrl(""); }}
-                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${
-                      mediaSource === "youtube"
-                        ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.15)] bg-zinc-900"
-                        : "border-zinc-850 hover:border-zinc-700"
-                    }`}
+                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${mediaSource === "youtube"
+                      ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.15)] bg-zinc-900"
+                      : "border-zinc-850 hover:border-zinc-700"
+                      }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${
-                      mediaSource === "youtube"
-                        ? "bg-red-600/20 text-red-500 border-red-500/30 scale-110"
-                        : "bg-red-650/10 text-red-500/80 border-red-500/10 group-hover:scale-105"
-                    }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${mediaSource === "youtube"
+                      ? "bg-red-600/20 text-red-500 border-red-500/30 scale-110"
+                      : "bg-red-650/10 text-red-500/80 border-red-500/10 group-hover:scale-105"
+                      }`}>
                       <FaYoutube size={20} />
                     </div>
-                    <span className={`text-[11px] font-bold transition duration-200 ${
-                      mediaSource === "youtube" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
-                    }`}>YouTube</span>
+                    <span className={`text-[11px] font-bold transition duration-200 ${mediaSource === "youtube" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
+                      }`}>YouTube</span>
                   </button>
 
                   {/* Twitch Button */}
                   <button
                     type="button"
                     onClick={() => { setMediaSource("twitch"); setMediaUrl(""); }}
-                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${
-                      mediaSource === "twitch"
-                        ? "border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)] bg-zinc-900"
-                        : "border-zinc-850 hover:border-zinc-700"
-                    }`}
+                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${mediaSource === "twitch"
+                      ? "border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)] bg-zinc-900"
+                      : "border-zinc-850 hover:border-zinc-700"
+                      }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${
-                      mediaSource === "twitch"
-                        ? "bg-purple-650/20 text-purple-400 border-purple-500/30 scale-110"
-                        : "bg-purple-650/10 text-purple-400/85 border-purple-500/10 group-hover:scale-105"
-                    }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${mediaSource === "twitch"
+                      ? "bg-purple-650/20 text-purple-400 border-purple-500/30 scale-110"
+                      : "bg-purple-650/10 text-purple-400/85 border-purple-500/10 group-hover:scale-105"
+                      }`}>
                       <FaTwitch size={18} />
                     </div>
-                    <span className={`text-[11px] font-bold transition duration-200 ${
-                      mediaSource === "twitch" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
-                    }`}>Twitch</span>
+                    <span className={`text-[11px] font-bold transition duration-200 ${mediaSource === "twitch" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
+                      }`}>Twitch</span>
                   </button>
 
                   {/* Instagram Button */}
                   <button
                     type="button"
                     onClick={() => { setMediaSource("instagram"); setMediaUrl(""); }}
-                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${
-                      mediaSource === "instagram"
-                        ? "border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.15)] bg-zinc-900"
-                        : "border-zinc-850 hover:border-zinc-700"
-                    }`}
+                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${mediaSource === "instagram"
+                      ? "border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.15)] bg-zinc-900"
+                      : "border-zinc-850 hover:border-zinc-700"
+                      }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${
-                      mediaSource === "instagram"
-                        ? "bg-pink-600/20 text-pink-450 border-pink-500/30 scale-110"
-                        : "bg-pink-650/10 text-pink-450/80 border-pink-500/10 group-hover:scale-105"
-                    }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${mediaSource === "instagram"
+                      ? "bg-pink-600/20 text-pink-450 border-pink-500/30 scale-110"
+                      : "bg-pink-650/10 text-pink-450/80 border-pink-500/10 group-hover:scale-105"
+                      }`}>
                       <FaInstagram size={18} />
                     </div>
-                    <span className={`text-[11px] font-bold transition duration-200 ${
-                      mediaSource === "instagram" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
-                    }`}>Instagram</span>
+                    <span className={`text-[11px] font-bold transition duration-200 ${mediaSource === "instagram" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
+                      }`}>Instagram</span>
                   </button>
 
                   {/* Custom Link Button */}
                   <button
                     type="button"
                     onClick={() => { setMediaSource("custom"); setMediaUrl(""); }}
-                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${
-                      mediaSource === "custom"
-                        ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.15)] bg-zinc-900"
-                        : "border-zinc-850 hover:border-zinc-700"
-                    }`}
+                    className={`bg-zinc-900/60 hover:bg-zinc-850 p-4 rounded-2xl flex flex-col items-center justify-center gap-2.5 transition-all duration-300 group cursor-pointer border ${mediaSource === "custom"
+                      ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.15)] bg-zinc-900"
+                      : "border-zinc-850 hover:border-zinc-700"
+                      }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${
-                      mediaSource === "custom"
-                        ? "bg-red-650/20 text-red-500 border-red-500/30 scale-110"
-                        : "bg-red-650/10 text-red-500/80 border-red-500/10 group-hover:scale-105"
-                    }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${mediaSource === "custom"
+                      ? "bg-red-650/20 text-red-500 border-red-500/30 scale-110"
+                      : "bg-red-650/10 text-red-500/80 border-red-500/10 group-hover:scale-105"
+                      }`}>
                       <FaLink size={15} />
                     </div>
-                    <span className={`text-[11px] font-bold transition duration-200 ${
-                      mediaSource === "custom" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
-                    }`}>Custom Link</span>
+                    <span className={`text-[11px] font-bold transition duration-200 ${mediaSource === "custom" ? "text-white" : "text-zinc-400 group-hover:text-zinc-300"
+                      }`}>Custom Link</span>
                   </button>
 
                 </div>
@@ -212,11 +235,10 @@ export default function CreateRoom() {
 
               {/* Conditional Media URL Input */}
               <div
-                className={`transition-all duration-300 origin-top ${
-                  mediaSource
-                    ? "max-h-28 opacity-100 scale-y-100"
-                    : "max-h-0 opacity-0 scale-y-0 overflow-hidden pointer-events-none"
-                }`}
+                className={`transition-all duration-300 origin-top ${mediaSource
+                  ? "max-h-28 opacity-100 scale-y-100"
+                  : "max-h-0 opacity-0 scale-y-0 overflow-hidden pointer-events-none"
+                  }`}
               >
                 {mediaSource && (
                   <div className="space-y-2">
@@ -236,10 +258,10 @@ export default function CreateRoom() {
                         mediaSource === "youtube"
                           ? "e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ or dQw4w9WgXcQ"
                           : mediaSource === "twitch"
-                          ? "e.g. lofi_girl"
-                          : mediaSource === "instagram"
-                          ? "Paste Instagram Video URL"
-                          : "Paste custom mp4/webm URL"
+                            ? "e.g. lofi_girl"
+                            : mediaSource === "instagram"
+                              ? "Paste Instagram Video URL"
+                              : "Paste custom mp4/webm URL"
                       }
                       className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3.5 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition duration-200"
                     />
@@ -256,22 +278,20 @@ export default function CreateRoom() {
                   <button
                     type="button"
                     onClick={() => setPrivacy("public")}
-                    className={`py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition duration-200 ${
-                      privacy === "public"
-                        ? "bg-red-600 text-white shadow"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
+                    className={`py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition duration-200 ${privacy === "public"
+                      ? "bg-red-600 text-white shadow"
+                      : "text-zinc-400 hover:text-white"
+                      }`}
                   >
                     <FaGlobe size={14} /> Public
                   </button>
                   <button
                     type="button"
                     onClick={() => setPrivacy("private")}
-                    className={`py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition duration-200 ${
-                      privacy === "private"
-                        ? "bg-red-600 text-white shadow"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
+                    className={`py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition duration-200 ${privacy === "private"
+                      ? "bg-red-600 text-white shadow"
+                      : "text-zinc-400 hover:text-white"
+                      }`}
                   >
                     <FaLock size={14} /> Private
                   </button>
@@ -280,11 +300,10 @@ export default function CreateRoom() {
 
               {/* Conditional Password Field */}
               <div
-                className={`transition-all duration-300 origin-top ${
-                  privacy === "private"
-                    ? "max-h-24 opacity-100 scale-y-100"
-                    : "max-h-0 opacity-0 scale-y-0 overflow-hidden pointer-events-none"
-                }`}
+                className={`transition-all duration-300 origin-top ${privacy === "private"
+                  ? "max-h-24 opacity-100 scale-y-100"
+                  : "max-h-0 opacity-0 scale-y-0 overflow-hidden pointer-events-none"
+                  }`}
               >
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
@@ -303,9 +322,11 @@ export default function CreateRoom() {
               {/* Submit Button */}
               <button
                 type="submit"
+                disabled={loading}
                 className="w-full bg-red-600 py-4 rounded-xl font-semibold text-white flex items-center justify-center gap-2 hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/20 active:scale-[0.98] transition-all duration-200 mt-4 cursor-pointer"
               >
-                <FaSignInAlt /> Enter Room
+                <FaSignInAlt /> 
+                {loading ? "Creating Room..." : "Enter Room"}
               </button>
 
             </form>

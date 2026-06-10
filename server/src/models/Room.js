@@ -19,6 +19,17 @@ const roomSchema = new mongoose.Schema({
      password: {
           type: String,
      },
+     mediaSource: {
+          type: String,
+          enum : ['youtube', 'twitch', 'instagram', 'custom'],
+          required: true,
+     },
+     maxParticipants: {
+          type: Number,
+          default: 10,
+          min: 2,
+          max: 100, 
+     },
      host: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'User',
