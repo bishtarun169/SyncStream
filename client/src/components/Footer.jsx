@@ -1,26 +1,185 @@
+import { Link } from "react-router-dom";
+import { FaGithub, FaLinkedin, FaYoutube, FaInstagram } from "react-icons/fa";
+
 export default function Footer() {
   return (
-    <footer className="bg-[#0a0a0f] border-t border-zinc-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 sm:py-12">
+    <footer className="bg-[#09090b] text-[#f4f4f5] border-t border-zinc-900 w-full mt-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        
+        {/* Main Grid: Newsletter Form Left, Columns Right */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 pb-12 border-b border-zinc-900">
+          
+          {/* Left: Logo & Newsletter */}
+          <div className="lg:col-span-5 space-y-6">
+            
+            {/* Cubical isometric logo */}
+            <div className="flex items-center gap-3">
+              <svg className="w-9 h-9 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2 L22 7 v10 L12 22 L2 17 V7 Z" />
+                <path d="M12 12 V22" />
+                <path d="M12 12 L2 7" />
+                <path d="M12 12 L22 7" />
+              </svg>
+            </div>
 
-        <div className="text-center max-w-2xl mx-auto">
+            <h3 className="text-lg font-bold text-white tracking-wide">
+              Join our newsletter for regular updates.
+            </h3>
 
-          <h2 className="text-2xl sm:text-3xl font-bold text-red-500">
-            StreamMate
-          </h2>
+            {/* Newsletter input form */}
+            <form onSubmit={(e) => e.preventDefault()} className="flex flex-col sm:flex-row gap-3 max-w-md">
+              <input 
+                type="email" 
+                placeholder="example@email.com" 
+                className="bg-[#141418] border border-zinc-800/80 focus:border-red-500/50 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-550 outline-none flex-grow" 
+                required 
+              />
+              <button 
+                type="submit" 
+                className="bg-[#1e1e24] hover:bg-[#272730] border border-zinc-800 text-white font-semibold px-6 py-3 rounded-xl text-sm transition duration-200 cursor-pointer shadow-md"
+              >
+                Subscribe
+              </button>
+            </form>
 
-          <p className="text-sm sm:text-base text-zinc-400 mt-4 leading-relaxed">
-            StreamMate is a watch-together platform that lets users
-            create rooms, invite friends, and enjoy synchronized
-            movie streaming in real-time from anywhere.
-          </p>
+          </div>
+
+          {/* Right: Columns */}
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-8">
+            
+            {/* Features Column */}
+            <div>
+              <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">
+                Features
+              </h4>
+              <ul className="space-y-3.5 text-sm">
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Synchronized Playback
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Live Chat Rooms
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Friends List
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Multi-Source Support
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            {/* Explore Column */}
+            <div>
+              <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">
+                Explore
+              </h4>
+              <ul className="space-y-3.5 text-sm">
+                <li>
+                  <Link to="/join-room" className="text-zinc-400 hover:text-white transition duration-150">
+                    Public Rooms
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/create-room" className="text-zinc-400 hover:text-white transition duration-150">
+                    Create Watch Party
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    How It Works
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Help & FAQ
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            {/* Company Column */}
+            <div>
+              <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">
+                Company
+              </h4>
+              <ul className="space-y-3.5 text-sm">
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    About Us
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150 flex items-center gap-2">
+                    Careers 
+                    <span className="bg-[#102a1e] text-[#4ade80] text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border border-[#1b4332]/50">
+                      Hiring
+                    </span>
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Terms of Service
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/home" className="text-zinc-400 hover:text-white transition duration-150">
+                    Contact Support
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+          </div>
 
         </div>
 
-        <div className="border-t border-zinc-800 mt-8 sm:mt-10 pt-6">
-          <p className="text-center text-zinc-500 text-xs sm:text-sm">
-            © 2026 StreamMate • Watch Together Platform
+        {/* Bottom Bar: Copyright & Socials */}
+        <div className="pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          
+          <p className="text-xs text-zinc-550">
+            © 2026 StreamMate Design
           </p>
+
+          <div className="flex items-center gap-5 text-zinc-400">
+            
+            {/* Twitter/X SVG logo */}
+            <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition duration-150">
+              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+            </a>
+
+            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition duration-150">
+              <FaGithub size={16} />
+            </a>
+
+            <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition duration-150">
+              <FaLinkedin size={16} />
+            </a>
+
+            <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition duration-150">
+              <FaYoutube size={16} />
+            </a>
+
+            <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition duration-150">
+              <FaInstagram size={16} />
+            </a>
+
+          </div>
+
         </div>
 
       </div>

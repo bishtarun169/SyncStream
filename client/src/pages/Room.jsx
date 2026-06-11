@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import {
   FaTv,
@@ -25,7 +25,20 @@ import {
   FaCompress,
   FaChevronLeft,
   FaChevronRight,
+  FaUserPlus,
+  FaUserSlash,
+  FaMicrophoneSlash,
+  FaBackward,
+  FaForward,
 } from "react-icons/fa";
+import { io } from "socket.io-client";
+import ReactPlayer from "react-player";
+
+// Resolve Vite ReactPlayer default export compatibility
+const Player = React.forwardRef((props, ref) => {
+  const PlayerComponent = ReactPlayer.default || ReactPlayer;
+  return <PlayerComponent ref={ref} {...props} />;
+});
 
 export default function Room() {
   const { roomId } = useParams();
@@ -38,10 +51,16 @@ export default function Room() {
   const initialNickname = passedState.nickname || "Host";
   const initialRoomName = passedState.roomName || "Watch Party Room";
 
+  // Current User state
+  const [currentUser, setCurrentUser] = useState(null);
+
   // Room states
   const [room, setRoom] = useState(null);
   const [roomName, setRoomName] = useState("Loading...");
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [invitedFriends, setInvitedFriends] = useState({});
   const [activeTab, setActiveTab] = useState("chat"); // "chat" or "participants"
   const [showSettings, setShowSettings] = useState(false);
 
@@ -59,9 +78,34 @@ export default function Room() {
   const [mediaSource, setMediaSource] = useState(null); // 'youtube' | 'twitch' | 'instagram' | 'custom'
   const [activeVideo, setActiveVideo] = useState(null); // The final video URL/ID
   const [inputValue, setInputValue] = useState("");
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [progress, setProgress] = useState(30); // Mock progress percentage
-  const [isMuted, setIsMuted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0); 
+  const [isMuted, setIsMuted] = useState(!isCreator);
+
+  // Fetch logged-in user profile
+  const fetchCurrentUser = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        navigate("/login");
+        return;
+      }
+      const response = await fetch("http://localhost:5000/api/auth/me", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok && data.user) {
+        setCurrentUser(data.user);
+      } else {
+        localStorage.removeItem("token");
+        navigate("/login");
+      }
+    } catch (error) {
+      console.error("Failed to fetch current user:", error);
+    }
+  };
 
   // Mock initial load of room details
   const fetchRoom = async () => {
@@ -88,26 +132,325 @@ export default function Room() {
       setMediaSource(data.mediaSource);
       setActiveVideo(data.videoURL);
 
+      // Fetch chat history
+      fetchChatMessages(data._id);
+
     } catch (error) {
       console.error("Failed to load room:", error);
     }
   };
 
+  const fetchFriends = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      const response = await fetch("http://localhost:5000/api/auth/friends", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok && data.friends) {
+        setFriends(data.friends);
+      }
+    } catch (error) {
+      console.error("Failed to fetch friends:", error);
+    }
+  };
+
+  const joinRoomApi = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      await fetch("http://localhost:5000/api/rooms/join-room", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ roomCode: roomId })
+      });
+      fetchParticipants();
+    } catch (error) {
+      console.error("Failed to join room in backend:", error);
+    }
+  };
+
   useEffect(() => {
+    fetchCurrentUser();
     fetchRoom();
+    fetchFriends();
+    if (!isCreator) {
+      joinRoomApi();
+    }
   }, [roomId]);
 
   // Chat message states
   const [messages, setMessages] = useState([
-    { id: 1, sender: "Sarah Connor", text: "Hey! Glad to join the room. What are we watching? 🍿", time: "12:30 PM", isSystem: false },
-    { id: 2, sender: "John Doe", text: "Lofi Beats sound perfect right now.", time: "12:31 PM", isSystem: false },
-    { id: 3, sender: "System", text: `${initialNickname} joined the room.`, time: "12:32 PM", isSystem: true },
+    { id: 3, sender: "System", text: `${initialNickname} joined the room.`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isSystem: true },
   ]);
   const [newMessage, setNewMessage] = useState("");
   const chatContainerRef = useRef(null);
 
+  // Update welcome system message once currentUser is loaded
+  useEffect(() => {
+    if (currentUser) {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === 3 && msg.isSystem && msg.text.includes("Host joined the room.")
+            ? { ...msg, text: `${currentUser.name || currentUser.username || "Guest"} joined the room.` }
+            : msg
+        )
+      );
+    }
+  }, [currentUser]);
+
   // Participants states
   const [participants, setParticipants] = useState([]);
+
+  const myName = currentUser?.name || currentUser?.username || initialNickname;
+  const hostParticipant = participants.find(p => p.role === "host");
+  const hostName = hostParticipant?.user?.name || hostParticipant?.user?.username || (isCreator ? myName : "Host");
+
+  // Video player and socket synchronization states
+  const [playedSeconds, setPlayedSeconds] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const playerRef = useRef(null);
+  const socketRef = useRef(null);
+  const lastHeartbeatRef = useRef(null);
+
+  // Time formatter helper
+  const formatTime = (seconds) => {
+    if (isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
+
+  // URL resolver helper to support both raw IDs and full URLs
+  const getPlayerUrl = () => {
+    if (!activeVideo) return "";
+    
+    // Check if it's already a full URL
+    if (activeVideo.startsWith("http://") || activeVideo.startsWith("https://")) {
+      return activeVideo;
+    }
+    
+    // Otherwise construct it based on mediaSource
+    if (mediaSource === "youtube") {
+      return `https://www.youtube.com/watch?v=${activeVideo}`;
+    }
+    if (mediaSource === "twitch") {
+      return `https://www.twitch.tv/${activeVideo}`;
+    }
+    
+    return activeVideo;
+  };
+
+  // Socket connection and event handlers
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Connect to Socket.io server
+    const socket = io("http://localhost:5000");
+    socketRef.current = socket;
+
+    socket.emit("join-room", {
+      roomId,
+      userId: currentUser._id,
+      role: isCreator ? "host" : "guest"
+    });
+
+    if (!isCreator) {
+      // Guest requests current position/status on join
+      socket.emit("request-host-sync", { roomId });
+    }
+
+    socket.on("media-play", ({ currentTime }) => {
+      console.log("Socket: media-play received", currentTime);
+      setIsPlaying(true);
+      if (playerRef.current && currentTime !== undefined) {
+        playerRef.current.seekTo(currentTime, "seconds");
+        setPlayedSeconds(currentTime);
+      }
+    });
+
+    socket.on("media-pause", () => {
+      console.log("Socket: media-pause received");
+      setIsPlaying(false);
+    });
+
+    socket.on("media-seek", ({ currentTime }) => {
+      console.log("Socket: media-seek received", currentTime);
+      if (playerRef.current && currentTime !== undefined) {
+        playerRef.current.seekTo(currentTime, "seconds");
+        setPlayedSeconds(currentTime);
+      }
+    });
+
+    socket.on("media-heartbeat", ({ currentTime, isPlaying: hostIsPlaying }) => {
+      if (playerRef.current && currentTime !== undefined) {
+        const localTime = playerRef.current.getCurrentTime() || 0;
+        const drift = Math.abs(localTime - currentTime);
+        // Sync if guest drifts by more than 2 seconds
+        if (drift > 2.0) {
+          console.log(`Socket: Drift detected (${drift.toFixed(2)}s). Resyncing...`);
+          playerRef.current.seekTo(currentTime, "seconds");
+          setPlayedSeconds(currentTime);
+        }
+      }
+      setIsPlaying(hostIsPlaying);
+    });
+
+    socket.on("media-load", ({ mediaSource: newSource, videoURL: newURL }) => {
+      console.log("Socket: media-load received", { newSource, newURL });
+      setMediaSource(newSource);
+      setActiveVideo(newURL);
+      setIsPlaying(true);
+      setProgress(0);
+      setPlayedSeconds(0);
+    });
+
+    socket.on("need-host-sync", ({ requesterId }) => {
+      if (isCreator && playerRef.current) {
+        const currentTime = playerRef.current.getCurrentTime() || 0;
+        socket.emit("host-sync-response", {
+          requesterId,
+          currentTime,
+          isPlaying
+        });
+      }
+    });
+
+    socket.on("receive-host-sync", ({ currentTime, isPlaying: hostIsPlaying }) => {
+      console.log("Socket: receive-host-sync received", { currentTime, hostIsPlaying });
+      if (playerRef.current && currentTime !== undefined) {
+        playerRef.current.seekTo(currentTime, "seconds");
+        setPlayedSeconds(currentTime);
+      }
+      setIsPlaying(hostIsPlaying);
+    });
+
+    socket.on("receive-chat-message", ({ message }) => {
+      console.log("Socket: receive-chat-message received", message);
+      setMessages((prev) => [...prev, message]);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [currentUser, roomId]);
+
+  // Fetch chat messages from DB
+  const fetchChatMessages = async (roomDbId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:5000/api/chat/${roomDbId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const mapped = data.map(msg => ({
+          id: msg._id,
+          sender: msg.sender?.name || msg.sender?.username || "Unknown User",
+          senderId: msg.sender?._id || msg.sender,
+          text: msg.content,
+          time: new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isSystem: false
+        }));
+        setMessages([
+          { id: 3, sender: "System", text: `${myName} joined the room.`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isSystem: true },
+          ...mapped
+        ]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch chat messages:", err);
+    }
+  };
+
+  // Video progress callback
+  const handleProgress = (state) => {
+    setPlayedSeconds(state.playedSeconds);
+    setProgress(state.played * 100);
+
+    // Host periodically emits sync heartbeats (every 3 seconds)
+    if (isCreator && socketRef.current) {
+      const now = Date.now();
+      if (!lastHeartbeatRef.current || now - lastHeartbeatRef.current > 3000) {
+        socketRef.current.emit("host-heartbeat", {
+          roomId,
+          currentTime: state.playedSeconds,
+          isPlaying
+        });
+        lastHeartbeatRef.current = now;
+      }
+    }
+  };
+
+  // Video actions for host
+  const handlePlayPause = () => {
+    if (!isCreator) return;
+    setIsPlaying(!isPlaying);
+  };
+
+  const handlePlay = () => {
+    if (!isCreator) return;
+    setIsPlaying(true);
+    if (socketRef.current) {
+      const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0;
+      socketRef.current.emit("host-play", { roomId, currentTime });
+    }
+  };
+
+  const handlePause = () => {
+    if (!isCreator) return;
+    setIsPlaying(false);
+    if (socketRef.current) {
+      socketRef.current.emit("host-pause", { roomId });
+    }
+  };
+
+  const handleSkipForward = () => {
+    if (!isCreator || !playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime() || 0;
+    const newTime = Math.min(currentTime + 10, duration);
+    playerRef.current.seekTo(newTime, "seconds");
+    setPlayedSeconds(newTime);
+    setProgress((newTime / duration) * 100);
+
+    if (socketRef.current) {
+      socketRef.current.emit("host-seek", { roomId, currentTime: newTime });
+    }
+  };
+
+  const handleSkipBackward = () => {
+    if (!isCreator || !playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime() || 0;
+    const newTime = Math.max(currentTime - 10, 0);
+    playerRef.current.seekTo(newTime, "seconds");
+    setPlayedSeconds(newTime);
+    setProgress((newTime / duration) * 100);
+
+    if (socketRef.current) {
+      socketRef.current.emit("host-seek", { roomId, currentTime: newTime });
+    }
+  };
+
+  const handleSeekChange = (e) => {
+    if (!isCreator || !playerRef.current) return;
+    const newPercent = parseFloat(e.target.value);
+    const newTime = (newPercent / 100) * duration;
+    
+    playerRef.current.seekTo(newTime, "seconds");
+    setPlayedSeconds(newTime);
+    setProgress(newPercent);
+
+    if (socketRef.current) {
+      socketRef.current.emit("host-seek", { roomId, currentTime: newTime });
+    }
+  };
   const fetchParticipants = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -120,9 +463,32 @@ export default function Room() {
         }
       );
 
+      if (response.status === 404) {
+        alert("This room has been ended by the host.");
+        navigate("/home");
+        return;
+      }
+
       const data = await response.json();
-      console.log("PARTICIPANTS:", data);
-      setParticipants(data.participants);
+      if (response.ok) {
+        console.log("PARTICIPANTS:", data);
+        setParticipants(data.participants);
+
+        // Check if current user is still in the room (i.e. not kicked)
+        if (currentUser && !isCreator) {
+          const isStillInRoom = data.participants.some(p => {
+            const pId = p.user?._id || p.user;
+            return pId?.toString() === currentUser._id?.toString();
+          });
+          if (!isStillInRoom) {
+            alert("You have been kicked from the room by the host.");
+            navigate("/home");
+            return;
+          }
+        }
+      } else {
+        console.error("Error fetching participants:", data.message);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -131,6 +497,10 @@ export default function Room() {
   useEffect(() => {
     if (room?._id) {
       fetchParticipants();
+      const interval = setInterval(() => {
+        fetchParticipants();
+      }, 5000);
+      return () => clearInterval(interval);
     }
   }, [room]);
 
@@ -168,16 +538,7 @@ export default function Room() {
     };
   }, []);
 
-  // Auto-play progress increments when isPlaying is true
-  useEffect(() => {
-    let interval;
-    if (isPlaying && activeVideo) {
-      interval = setInterval(() => {
-        setProgress((prev) => (prev >= 100 ? 0 : prev + 0.1));
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, activeVideo]);
+  // Native video progress is handled by react-player onProgress
 
   // Auto-load passed movieUrl if available
   useEffect(() => {
@@ -213,6 +574,52 @@ export default function Room() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyInviteLink = () => {
+    const inviteLink = `${window.location.origin}/join-room?code=${roomId}`;
+    navigator.clipboard.writeText(inviteLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleInviteFriend = async (friendId) => {
+    setInvitedFriends((prev) => ({ ...prev, [friendId]: "sending" }));
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch("http://localhost:5000/api/auth/friends/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          friendId,
+          roomId,
+          roomName: roomName || "Watch Room"
+        })
+      });
+
+      let data = {};
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(text || `Request failed with status ${response.status}`);
+      }
+
+      if (response.ok) {
+        setInvitedFriends((prev) => ({ ...prev, [friendId]: "invited" }));
+      } else {
+        alert(data.message || "Failed to invite friend");
+        setInvitedFriends((prev) => ({ ...prev, [friendId]: "failed" }));
+      }
+    } catch (error) {
+      console.error("Error inviting friend:", error);
+      alert("Error inviting friend: " + error.message);
+      setInvitedFriends((prev) => ({ ...prev, [friendId]: "failed" }));
+    }
+  };
+
   const handleSourceSelect = (sourceType) => {
     setMediaSource(sourceType);
     setInputValue("");
@@ -235,27 +642,128 @@ export default function Room() {
     setActiveVideo(targetValue);
     setIsPlaying(true);
     setProgress(0);
+    setPlayedSeconds(0);
+
+    if (socketRef.current) {
+      socketRef.current.emit("host-load-media", {
+        roomId,
+        mediaSource,
+        videoURL: targetValue
+      });
+    }
   };
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
+    
     if (!newMessage.trim() || chatDisabled) return;
 
-    const msg = {
-      id: Date.now(),
-      sender: initialNickname,
-      text: newMessage.trim(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isSystem: false,
-    };
-
-    setMessages([...messages, msg]);
+    const textToSend = newMessage.trim();
     setNewMessage("");
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:5000/api/chat/${room._id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ content: textToSend })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        const createdMsg = data.data;
+        const msg = {
+          id: createdMsg._id,
+          sender: myName,
+          senderId: currentUser?._id,
+          text: createdMsg.content,
+          time: new Date(createdMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isSystem: false,
+        };
+
+        // Append locally
+        setMessages((prev) => [...prev, msg]);
+
+        // Emit to socket room for real-time delivery
+        if (socketRef.current) {
+          socketRef.current.emit("send-chat-message", { roomId, message: msg });
+        }
+      } else {
+        alert(data.message || "Failed to send message");
+      }
+    } catch (err) {
+      console.error("Error sending chat message:", err);
+    }
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
     if (window.confirm(isCreator ? "Are you sure you want to end this room for all participants?" : "Are you sure you want to leave this watch party?")) {
+      try {
+        const token = localStorage.getItem("token");
+        if (token && room?._id) {
+          await fetch(`http://localhost:5000/api/rooms/${room._id}/leave`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Failed to leave room in backend:", error);
+      }
       navigate("/home");
+    }
+  };
+
+  const handleKick = async (targetUserId) => {
+    if (!window.confirm("Are you sure you want to kick this participant from the room?")) return;
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:5000/api/rooms/${room._id}/kick`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ targetUserId })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        fetchParticipants();
+      } else {
+        alert(data.message || "Failed to kick participant");
+      }
+    } catch (error) {
+      console.error("Error kicking participant:", error);
+      alert("Error kicking participant: " + error.message);
+    }
+  };
+
+  const handleToggleMute = async (targetUserId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:5000/api/rooms/${room._id}/mute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ targetUserId })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        fetchParticipants();
+      } else {
+        alert(data.message || "Failed to toggle mute");
+      }
+    } catch (error) {
+      console.error("Error toggling mute:", error);
+      alert("Error toggling mute: " + error.message);
     }
   };
 
@@ -286,10 +794,22 @@ export default function Room() {
             <span className="text-sm font-bold text-zinc-400 mr-3 tracking-wide font-mono leading-none">Code: {roomId}</span>
             <button
               onClick={copyRoomCode}
-              title="Copy Invite Link"
+              title="Copy Room Code"
               className="text-zinc-400 hover:text-white transition duration-150 cursor-pointer flex items-center justify-center leading-none"
             >
               {copied ? <FaCheck className="text-green-500" size={13} /> : <FaRegCopy size={13} />}
+            </button>
+          </div>
+
+          {/* Invite Link Badge */}
+          <div className="flex items-center bg-zinc-900/80 border border-zinc-800 rounded-xl px-4 select-none shadow h-11">
+            <span className="text-xs font-bold text-zinc-400 mr-3 tracking-wide uppercase leading-none">Invite Link</span>
+            <button
+              onClick={copyInviteLink}
+              title="Copy Shareable Invite Link"
+              className="text-zinc-400 hover:text-white transition duration-150 cursor-pointer flex items-center justify-center leading-none"
+            >
+              {copiedLink ? <FaCheck className="text-green-500" size={13} /> : <FaLink size={13} />}
             </button>
           </div>
 
@@ -413,46 +933,48 @@ export default function Room() {
 
               {/* Media player wrapper */}
               <div ref={playerContainerRef} className="w-full max-w-[min(896px,88.8vh)] lg:max-w-[min(896px,97.7vh)] aspect-video bg-black rounded-3xl overflow-hidden border border-zinc-800 relative group shadow-2xl max-h-[50vh] lg:max-h-[55vh] mx-auto">
-                {mediaSource === "youtube" && activeVideo && (
-                  <iframe
-                    className="w-full h-full"
-                    src={`https://www.youtube.com/embed/${activeVideo}?autoplay=1&enablejsapi=1&controls=0&mute=${isMuted ? 1 : 0}`}
-                    title="YouTube video player"
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  ></iframe>
-                )}
-
-                {mediaSource === "twitch" && activeVideo && (
-                  <iframe
-                    className="w-full h-full"
-                    src={`https://player.twitch.tv/?channel=${activeVideo}&parent=${window.location.hostname}&muted=${isMuted}`}
-                    frameBorder="0"
-                    allowFullScreen={true}
-                    scrolling="no"
-                  ></iframe>
-                )}
-
-                {((mediaSource === "custom" || mediaSource === "instagram" || !mediaSource || !activeVideo)) && (
+                {activeVideo ? (
+                  <>
+                    <Player
+                      key={getPlayerUrl()}
+                      ref={playerRef}
+                      url={getPlayerUrl()}
+                      playing={isPlaying}
+                      muted={isMuted}
+                      playsinline={true}
+                      volume={0.8}
+                      width="100%"
+                      height="100%"
+                      controls={false}
+                      onProgress={handleProgress}
+                      onDuration={(d) => setDuration(d)}
+                      onPlay={handlePlay}
+                      onPause={handlePause}
+                      config={{
+                        youtube: {
+                          playerVars: {
+                            disablekb: 1,
+                            fs: 0,
+                            modestbranding: 1,
+                            rel: 0
+                          }
+                        }
+                      }}
+                    />
+                    {!isCreator && (
+                      <div className="absolute inset-0 z-10 bg-transparent cursor-default"></div>
+                    )}
+                  </>
+                ) : (
                   <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center text-center p-6 text-zinc-500">
                     <FaTv size={48} className="text-zinc-650 mb-3 animate-pulse" />
-                    {activeVideo ? (
-                      <>
-                        <span className="text-sm font-bold text-zinc-300">Custom Stream Playing</span>
-                        <span className="text-xs text-zinc-500 mt-1 max-w-sm truncate">{activeVideo}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-sm font-bold text-zinc-300">Waiting for Host</span>
-                        <span className="text-xs text-zinc-500 mt-1 max-w-sm">No watch source has been loaded yet.</span>
-                      </>
-                    )}
+                    <span className="text-sm font-bold text-zinc-300">Waiting for Host</span>
+                    <span className="text-xs text-zinc-500 mt-1 max-w-sm">No watch source has been loaded yet.</span>
                   </div>
                 )}
 
                 {/* Dark Overlay controls on hover */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 pointer-events-none">
+                <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/80 via-black/10 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 pointer-events-none">
                   <div className="flex items-center justify-between text-xs text-white">
                     <span className="font-bold flex items-center gap-1.5 uppercase tracking-wide bg-black/60 px-3 py-1.5 rounded-full border border-zinc-800">
                       {mediaSource ? (
@@ -468,24 +990,55 @@ export default function Room() {
                   </div>
 
                   {/* Player timeline & bottom bar */}
-                  <div className="space-y-3 pointer-events-auto">
+                  <div className="space-y-3 pointer-events-auto w-full">
                     {/* Progress slider bar */}
-                    <div className="relative w-full h-1 bg-zinc-700 rounded-full cursor-pointer">
-                      <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${progress}%` }}></div>
-                      <div className="absolute top-[-4px] w-3 h-3 bg-white border border-red-500 rounded-full shadow" style={{ left: `calc(${progress}% - 6px)` }}></div>
+                    <div className="w-full flex items-center">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step="any"
+                        value={progress}
+                        onChange={handleSeekChange}
+                        disabled={!isCreator}
+                        className={`w-full accent-red-500 h-1 bg-zinc-700 rounded-full cursor-pointer outline-none ${!isCreator ? "pointer-events-none opacity-80" : ""}`}
+                      />
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => setIsPlaying(!isPlaying)}
-                          className="text-white hover:text-red-500 transition cursor-pointer"
-                        >
-                          {isPlaying ? <FaPause size={14} /> : <FaPlay size={14} />}
-                        </button>
+                        {isCreator ? (
+                          <>
+                            <button
+                              onClick={handleSkipBackward}
+                              className="text-white hover:text-red-500 transition cursor-pointer"
+                              title="Skip Backward 10s"
+                            >
+                              <FaBackward size={12} />
+                            </button>
+                            <button
+                              onClick={handlePlayPause}
+                              className="text-white hover:text-red-500 transition cursor-pointer"
+                              title={isPlaying ? "Pause" : "Play"}
+                            >
+                              {isPlaying ? <FaPause size={14} /> : <FaPlay size={14} />}
+                            </button>
+                            <button
+                              onClick={handleSkipForward}
+                              className="text-white hover:text-red-500 transition cursor-pointer"
+                              title="Skip Forward 10s"
+                            >
+                              <FaForward size={12} />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-zinc-400 text-[10px] font-bold bg-zinc-900/60 border border-zinc-800 px-3 py-1 rounded-full uppercase tracking-wider select-none">
+                            {isPlaying ? "Playing (Synced)" : "Paused (Synced)"}
+                          </div>
+                        )}
                         <button
                           onClick={() => setIsMuted(!isMuted)}
-                          className="text-white hover:text-red-500 transition cursor-pointer"
+                          className="text-white hover:text-red-500 transition cursor-pointer ml-2"
                         >
                           {isMuted ? <FaVolumeMute size={14} /> : <FaVolumeUp size={14} />}
                         </button>
@@ -499,7 +1052,7 @@ export default function Room() {
                       </div>
 
                       <span className="text-[10px] font-mono text-zinc-400">
-                        {Math.floor((progress * 120) / 100)}s / 120s
+                        {formatTime(playedSeconds)} / {formatTime(duration)}
                       </span>
                     </div>
                   </div>
@@ -561,56 +1114,83 @@ export default function Room() {
 
           {/* Panel body */}
           <div className="flex-grow flex flex-col min-h-0">
-
             {activeTab === "chat" ? (
               /* =================== CHAT TAB =================== */
               <div className="flex-grow flex flex-col min-h-0">
                 {/* Scrolling message feed */}
                 <div ref={chatContainerRef} className="flex-grow p-2.5 sm:p-4 overflow-y-auto space-y-3 sm:space-y-4 custom-scrollbar min-h-0">
-                  {messages.map((m) => (
-                    <div key={m.id} className="animate-fadeIn">
-                      {m.isSystem ? (
-                        <div className="text-[10px] text-zinc-550 text-center uppercase tracking-wider font-semibold py-1 bg-zinc-900/10 rounded-lg border border-zinc-850/50">
-                          {m.text}
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 sm:gap-3 items-start p-1.5 sm:p-2.5 rounded-xl hover:bg-zinc-900/40 transition group relative">
-                          {/* Left: User Avatar */}
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 select-none ${m.sender === initialNickname
-                            ? "bg-red-500/15 text-red-400 border border-red-500/20"
-                            : "bg-zinc-800 text-zinc-300 border border-zinc-700"
-                            }`}>
-                            {m.sender.charAt(0).toUpperCase()}
-                          </div>
+                  {messages.map((m) => {
+                    const isSenderMuted = (() => {
+                      if (m.isSystem) return false;
+                      if (m.senderId) {
+                        const participant = participants.find(p => {
+                          const pId = p.user?._id || p.user;
+                          return pId?.toString() === m.senderId.toString();
+                        });
+                        return !!participant?.isMuted;
+                      }
+                      const participant = participants.find(p => {
+                        const pName = p.user?.name || p.user?.username;
+                        return pName === m.sender;
+                      });
+                      return !!participant?.isMuted;
+                    })();
 
-                          {/* Right: Message Content */}
-                          <div className="flex-grow min-w-0">
-                            <div className="space-y-0.5">
-                              <div className="flex items-baseline gap-2">
-                                <span className={`text-xs font-black ${m.sender === initialNickname ? "text-red-500" : "text-zinc-200"}`}>
-                                  {m.sender}
-                                </span>
-                                {m.sender === initialNickname && (
-                                  <span className="text-[9px] bg-red-600/10 text-red-400 border border-red-500/20 px-1.5 py-0.25 rounded font-black uppercase tracking-wider">
-                                    Host
+                    const isSenderOfMsg = m.senderId 
+                      ? (currentUser?._id?.toString() === m.senderId.toString())
+                      : (m.sender === myName);
+
+                    if (isSenderMuted && !isSenderOfMsg) {
+                      return null;
+                    }
+
+                    return (
+                      <div key={m.id} className="animate-fadeIn">
+                        {m.isSystem ? (
+                          <div className="text-[10px] text-zinc-550 text-center uppercase tracking-wider font-semibold py-1 bg-zinc-900/10 rounded-lg border border-zinc-850/50">
+                            {m.text}
+                          </div>
+                        ) : (
+                          <div className={`flex gap-2 sm:gap-3 items-start p-1.5 sm:p-2.5 rounded-xl hover:bg-zinc-900/40 transition group relative ${
+                            isSenderOfMsg ? "flex-row-reverse" : ""
+                          }`}>
+                            {/* Left/Right: User Avatar */}
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 select-none ${m.sender === myName
+                              ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                              : "bg-zinc-800 text-zinc-300 border border-zinc-700"
+                              }`}>
+                              {m.sender.charAt(0).toUpperCase()}
+                            </div>
+
+                            {/* Right/Left: Message Content */}
+                            <div className={`flex-grow min-w-0 ${isSenderOfMsg ? "text-right" : ""}`}>
+                              <div className="space-y-0.5">
+                                <div className={`flex items-baseline gap-2 ${isSenderOfMsg ? "justify-end flex-row-reverse" : ""}`}>
+                                  <span className={`text-xs font-black ${m.sender === myName ? "text-red-500" : "text-zinc-200"}`}>
+                                    {m.sender}
                                   </span>
-                                )}
-                                <span className="text-[9px] text-zinc-500 font-mono">{m.time}</span>
+                                  {m.sender === hostName && (
+                                    <span className="text-[9px] bg-red-600/10 text-red-400 border border-red-500/20 px-1.5 py-0.25 rounded font-black uppercase tracking-wider">
+                                      Host
+                                    </span>
+                                  )}
+                                  <span className="text-[9px] text-zinc-550 font-mono">{m.time}</span>
+                                </div>
+                                <p className="text-xs text-zinc-300 leading-relaxed break-words">{m.text}</p>
                               </div>
-                              <p className="text-xs text-zinc-300 leading-relaxed break-words">{m.text}</p>
+                            </div>
+
+                            {/* Hover action overlay */}
+                            <div className={`absolute ${isSenderOfMsg ? "left-2" : "right-2"} top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center bg-[#18181f] border border-zinc-800 rounded-lg p-0.5 shadow-lg gap-0.5`}>
+                              <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Thumbs Up">👍</button>
+                              <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Heart">❤️</button>
+                              <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Fire">🔥</button>
                             </div>
                           </div>
-
-                          {/* Hover action overlay */}
-                          <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center bg-[#18181f] border border-zinc-800 rounded-lg p-0.5 shadow-lg gap-0.5">
-                            <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Thumbs Up">👍</button>
-                            <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Heart">❤️</button>
-                            <button type="button" className="w-5 h-5 flex items-center justify-center text-[10px] text-zinc-400 hover:text-white rounded hover:bg-zinc-800 cursor-pointer" title="Fire">🔥</button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Input action drawer */}
@@ -620,7 +1200,11 @@ export default function Room() {
                     <input
                       type="text"
                       disabled={chatDisabled}
-                      placeholder={chatDisabled ? "Chat has been disabled by host" : "Message #watch-party..."}
+                      placeholder={
+                        chatDisabled 
+                          ? "Chat has been disabled by host" 
+                          : "Message #watch-party..."
+                      }
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
                       className="w-full bg-transparent text-xs text-white outline-none placeholder-zinc-500 disabled:opacity-50"
@@ -650,29 +1234,160 @@ export default function Room() {
               </div>
             ) : (
               /* =================== PARTICIPANTS TAB =================== */
-              <div className="flex-grow p-4 overflow-y-auto space-y-3 custom-scrollbar">
-                {participants.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-zinc-900/30 border border-zinc-850 rounded-2xl hover:border-zinc-800 transition duration-200"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-black flex items-center justify-center">
-                        {p.user?.username?.charAt(0)?.toUpperCase()}
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold block">{p.user?.username}</span>
-                        <span className="text-[10px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Active
-                        </span>
-                      </div>
+              <div className="flex-grow flex flex-col min-h-0">
+                {/* Scrollable list wrapper */}
+                <div className="flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar min-h-0">
+                  
+                  {/* Current Participants Section */}
+                  <div className="space-y-3">
+                    <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <FaUsers size={12} className="text-red-500" /> Active in Room ({participants.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {participants.map((p, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-3 bg-zinc-900/30 border border-zinc-850 rounded-2xl hover:border-zinc-800 transition duration-200"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-black flex items-center justify-center overflow-hidden">
+                              {p.user?.profilePic ? (
+                                <img src={p.user.profilePic} alt={p.user.name} className="w-full h-full object-cover" />
+                              ) : (
+                                (p.user?.name || "U").charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold block">
+                                {p.user?.name || "Unknown User"}
+                                {p.user?.userId && <span className="text-[10px] text-zinc-500 ml-1 font-mono">@{p.user.userId}</span>}
+                              </span>
+                              <span className="text-[10px] text-zinc-500 flex items-center gap-1 mt-0.5">
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Active
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isCreator && p.role !== "host" && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMute(p.user?._id || p.user)}
+                                  title={p.isMuted ? "Unmute Participant" : "Mute Participant"}
+                                  className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                                    p.isMuted 
+                                      ? "bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20"
+                                      : "bg-zinc-850 border-zinc-750 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                                  }`}
+                                >
+                                  {p.isMuted ? <FaMicrophoneSlash size={11} /> : <FaVolumeUp size={11} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleKick(p.user?._id || p.user)}
+                                  title="Kick Participant"
+                                  className="p-1.5 rounded-lg bg-zinc-850 border border-zinc-750 text-zinc-400 hover:text-red-500 hover:border-red-500/30 hover:bg-zinc-800 transition cursor-pointer flex items-center justify-center"
+                                >
+                                  <FaUserSlash size={11} />
+                                </button>
+                              </>
+                            )}
+                            <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${p.role === "host" ? "bg-red-600/10 text-red-400 border border-red-500/20" : "bg-zinc-800 text-zinc-400"
+                              }`}>
+                              {p.role}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${p.role === "host" ? "bg-red-600/10 text-red-400 border border-red-500/20" : "bg-zinc-800 text-zinc-400"
-                      }`}>
-                      {p.role}
-                    </span>
                   </div>
-                ))}
+
+                  {/* Invite Friends Section */}
+                  {isCreator && (
+                    <div className="space-y-3 pt-4 border-t border-zinc-800">
+                      <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                        <FaUserPlus size={12} className="text-red-500" /> Invite Friends
+                      </h4>
+                      
+                      {(() => {
+                        const invitableFriends = friends.filter(friend => 
+                          !participants.some(p => {
+                            const pId = p.user?._id || p.user;
+                            return pId?.toString() === friend._id?.toString();
+                          })
+                        );
+
+                        if (friends.length === 0) {
+                          return (
+                            <div className="text-center py-6 border border-dashed border-zinc-800 rounded-2xl">
+                              <p className="text-zinc-500 text-xs">No friends found.</p>
+                              <p className="text-zinc-650 text-[10px] mt-1">Add friends from the Dashboard first.</p>
+                            </div>
+                          );
+                        }
+
+                        if (invitableFriends.length === 0) {
+                          return (
+                            <div className="text-center py-6 border border-dashed border-zinc-800 rounded-2xl">
+                              <p className="text-zinc-500 text-xs">All friends are in the room.</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-2">
+                            {invitableFriends.map((friend) => {
+                              const inviteStatus = invitedFriends[friend._id];
+                              
+                              return (
+                                <div
+                                  key={friend._id}
+                                  className="flex items-center justify-between p-3 bg-zinc-900/30 border border-zinc-850 rounded-2xl hover:border-zinc-800 transition duration-200"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-black flex items-center justify-center overflow-hidden">
+                                      {friend.profilePic ? (
+                                        <img src={friend.profilePic} alt={friend.name} className="w-full h-full object-cover" />
+                                      ) : (
+                                        (friend.name || "U").charAt(0).toUpperCase()
+                                      )}
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-bold block text-zinc-200">
+                                        {friend.name}
+                                      </span>
+                                      <span className="text-[10px] text-zinc-500 block font-mono mt-0.5">
+                                        @{friend.userId}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  {inviteStatus === 'invited' ? (
+                                    <span className="text-[9px] bg-green-500/10 text-green-400 border border-green-500/20 px-2.5 py-1 rounded-lg font-bold">
+                                      Invited
+                                    </span>
+                                  ) : inviteStatus === 'sending' ? (
+                                    <span className="text-[9px] bg-zinc-800 text-zinc-500 px-2.5 py-1 rounded-lg font-bold animate-pulse">
+                                      Sending...
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleInviteFriend(friend._id)}
+                                      className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition cursor-pointer"
+                                    >
+                                      Invite
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                </div>
               </div>
             )}
 

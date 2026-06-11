@@ -12,7 +12,11 @@ const {
      resendOTP,
      forgotPassword,
      resetPassword,
-     requestPasswordOTP
+     requestPasswordOTP,
+     addFriend,
+     getFriends,
+     inviteFriend,
+     dismissNotification
 } = require('../controllers/authController');
 const authMiddle = require('../middleware/authMiddleware');
 
@@ -34,5 +38,11 @@ router.get('/me', authMiddle, getCurrentUser);
 router.put('/update', authMiddle, updateUser);
 router.delete('/delete', authMiddle, deleteUser);
 router.post('/request-password-otp', authMiddle, requestPasswordOTP);
+
+// Friends routes
+router.post('/friends/add', authMiddle, addFriend);
+router.get('/friends', authMiddle, getFriends);
+router.post('/friends/invite', authMiddle, inviteFriend);
+router.post('/notifications/dismiss', authMiddle, dismissNotification);
 
 module.exports = router;

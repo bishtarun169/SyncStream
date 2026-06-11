@@ -1,50 +1,67 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FaUser, FaKey, FaSignInAlt, FaChevronLeft, FaUsers, FaPlay } from "react-icons/fa";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { FaKey, FaSignInAlt, FaChevronLeft, FaUsers, FaPlay } from "react-icons/fa";
+import Footer from "../components/Footer";
 
 export default function JoinRoom() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [roomCode, setRoomCode] = useState("");
-  const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
 
-  // Mock data for premium public rooms dashboard
-  const publicRooms = [
-    {
-      id: "SM-NOLAN-99",
-      name: "Christopher Nolan Fan Club 🎬",
-      movie: "Interstellar (2014)",
-      viewers: 14,
-      host: "Sarah",
-      thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=300&auto=format&fit=crop"
-    },
-    {
-      id: "SM-LOFI-21",
-      name: "Lofi Beats & Chill Room 🎧",
-      movie: "Lofi Hip Hop Radio 24/7",
-      viewers: 8,
-      host: "Alex",
-      thumbnail: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=300&auto=format&fit=crop"
-    },
-    {
-      id: "SM-ANIME-04",
-      name: "Classic Anime Marathon ⚔️",
-      movie: "Spirited Away (2001)",
-      viewers: 29,
-      host: "Takahiro",
-      thumbnail: "https://images.unsplash.com/photo-1578632767115-351597cf2477?q=80&w=300&auto=format&fit=crop"
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const code = queryParams.get("code");
+    if (code) {
+      setRoomCode(code.toUpperCase());
     }
-  ];
+  }, [location.search]);
+
+  const [publicRooms, setPublicRooms] = useState([]);
+
+  const fetchPublicRooms = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const response = await fetch("http://localhost:5000/api/rooms/public-rooms", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const mapped = data.map(room => ({
+          id: room.roomCode,
+          name: room.roomName,
+          movie: room.videoURL,
+          viewers: room.participants ? room.participants.length : 0,
+          host: room.host?.name || room.host?.username || "Unknown",
+          thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=300&auto=format&fit=crop"
+        }));
+        setPublicRooms(mapped);
+      }
+    } catch (err) {
+      console.error("Error fetching public rooms:", err);
+    }
+  };
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const code = queryParams.get("code");
+    if (code) {
+      setRoomCode(code.toUpperCase());
+    }
+    fetchPublicRooms();
+  }, [location.search]);
 
   const handleJoin = (e) => {
     e.preventDefault();
-    console.log("Joining room:", { roomCode, nickname, password });
-    navigate(`/room/${roomCode.toUpperCase()}`, { state: { nickname, isCreator: false } });
+    console.log("Joining room:", { roomCode, password });
+    navigate(`/room/${roomCode.toUpperCase()}`, { state: { isCreator: false } });
   };
 
   const handleQuickJoin = (room) => {
-    const guestName = "Guest_" + Math.floor(Math.random() * 1000);
-    navigate(`/room/${room.id}`, { state: { nickname: guestName, roomName: room.name, isCreator: false } });
+    navigate(`/room/${room.id}`, { state: { roomName: room.name, isCreator: false } });
   };
 
   return (
@@ -93,21 +110,6 @@ export default function JoinRoom() {
                 />
               </div>
 
-              {/* Nickname */}
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
-                  <FaUser className="text-red-500" size={14} /> Your Nickname
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="What should we call you?"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3.5 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition duration-200"
-                />
-              </div>
-
               {/* Room Password */}
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
@@ -144,7 +146,7 @@ export default function JoinRoom() {
                 </li>
                 <li className="flex gap-3">
                   <span className="flex items-center justify-center bg-red-500/10 text-red-500 w-6 h-6 rounded-full flex-shrink-0 text-xs font-bold">2</span>
-                  <span>Enter a **Nickname** so friends inside the room can identify you in live chat.</span>
+                  <span>Your profile name will be used so friends inside the room can identify you in live chat.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex items-center justify-center bg-red-500/10 text-red-500 w-6 h-6 rounded-full flex-shrink-0 text-xs font-bold">3</span>
@@ -168,50 +170,58 @@ export default function JoinRoom() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {publicRooms.map((room) => (
-              <div 
-                key={room.id} 
-                className="bg-[#18181b]/60 border border-zinc-800 rounded-3xl overflow-hidden hover:border-zinc-700 transition duration-300 flex flex-col group shadow-lg"
-              >
-                {/* Room Banner image */}
-                <div className="h-40 overflow-hidden relative">
-                  <img 
-                    src={room.thumbnail} 
-                    alt={room.movie} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-[#18181b]/40 to-transparent"></div>
-                  <span className="absolute top-4 right-4 bg-red-600 text-white font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                    {room.viewers} watching
-                  </span>
-                </div>
-
-                {/* Details */}
-                <div className="p-6 flex-grow flex flex-col justify-between space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-bold text-white truncate">{room.name}</h3>
-                    <p className="text-zinc-400 text-xs flex items-center gap-1.5">
-                      <FaPlay size={10} className="text-red-500" /> Playing: <span className="font-semibold text-zinc-300">{room.movie}</span>
-                    </p>
-                    <p className="text-zinc-500 text-xs">
-                      Hosted by: <span className="text-zinc-400">{room.host}</span>
-                    </p>
+            {publicRooms.length === 0 ? (
+              <div className="col-span-3 text-center py-12 border border-dashed border-zinc-850 rounded-3xl bg-[#141418]/40">
+                <p className="text-zinc-400 text-sm font-bold">No active public rooms right now.</p>
+                <p className="text-zinc-500 text-xs mt-1">Create a new watch room and set its privacy to public!</p>
+              </div>
+            ) : (
+              publicRooms.map((room) => (
+                <div 
+                  key={room.id} 
+                  className="bg-[#18181b]/60 border border-zinc-800 rounded-3xl overflow-hidden hover:border-zinc-700 transition duration-300 flex flex-col group shadow-lg"
+                >
+                  {/* Room Banner image */}
+                  <div className="h-40 overflow-hidden relative">
+                    <img 
+                      src={room.thumbnail} 
+                      alt={room.movie} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-[#18181b]/40 to-transparent"></div>
+                    <span className="absolute top-4 right-4 bg-red-600 text-white font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+                      <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                      {room.viewers} watching
+                    </span>
                   </div>
 
-                  <button
-                    onClick={() => handleQuickJoin(room)}
-                    className="w-full bg-zinc-800 hover:bg-red-600 hover:text-white py-2.5 rounded-xl text-sm font-semibold transition duration-200 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    Quick Join
-                  </button>
+                  {/* Details */}
+                  <div className="p-6 flex-grow flex flex-col justify-between space-y-4">
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-bold text-white truncate">{room.name}</h3>
+                      <p className="text-zinc-400 text-xs flex items-center gap-1.5">
+                        <FaPlay size={10} className="text-red-500" /> Playing: <span className="font-semibold text-zinc-300 truncate max-w-[150px] inline-block align-bottom">{room.movie}</span>
+                      </p>
+                      <p className="text-zinc-500 text-xs">
+                        Hosted by: <span className="text-zinc-400">{room.host}</span>
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleQuickJoin(room)}
+                      className="w-full bg-zinc-800 hover:bg-red-600 hover:text-white py-2.5 rounded-xl text-sm font-semibold transition duration-200 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      Quick Join
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
       </div>
+      <Footer />
     </div>
   );
 }

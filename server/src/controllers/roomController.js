@@ -70,14 +70,20 @@ const joinRoom = async (req, res) => {
           const userId = req.user.userId;
 
           // Find room by code
-          const room = await Room.findOne({ roomCode });
+          const room = await Room.findOne({ roomCode, isActive: true });
           if (!room) {
                return res.status(404).json({ message: 'Room not found' });
           }
 
           // Check if user is already a participant
-          if (room.participants.includes(userId)) {
-               return res.status(400).json({ message: 'You are already in this room' });
+          if (room.participants.some(p => p.user && p.user.toString() === userId)) {
+               return res.status(200).json({
+                    message: 'You are already in this room',
+                    roomCode: room.roomCode,
+                    roomName: room.roomName,
+                    videoURL: room.videoURL,
+                    host: room.host,
+               });
           }
 
           // If room is private, check password
@@ -95,13 +101,19 @@ const joinRoom = async (req, res) => {
                return res.status(400).json({ message: 'Room is full' });
           }
 
-          // Add user to participants
-          room.participants.push([{
-               user: userId,
-               role: 'member'
-          }]);
-
-          await room.save();
+          // Add user to participants atomically to prevent duplicate joins due to React strict mode / concurrent calls
+          await Room.updateOne(
+               { _id: room._id, "participants.user": { $ne: userId } },
+               {
+                    $push: {
+                         participants: {
+                              user: userId,
+                              role: 'member',
+                              joinedAt: new Date()
+                         }
+                    }
+               }
+          );
 
           res.status(200).json({
                message: 'Joined room successfully',
@@ -132,10 +144,11 @@ const leaveRoom = async (req, res) => {
           }
 
           if (room.host.toString() === userId) {
-               await Room.findByIdAndDelete(roomId);
+               room.isActive = false;
+               await room.save();
 
                return res.status(200).json({
-                    message: "Host left. Room deleted."
+                    message: "Host left. Room ended."
                });
           }
 
@@ -162,10 +175,10 @@ const getRoom = async (req, res) => {
      try {
           const roomId = req.params.id;
           const room = await Room.findById(roomId)
-               .populate('host', 'username email')
-               .populate('participants.user', 'username email');
+               .populate('host', 'name email userId profilePic')
+               .populate('participants.user', 'name email userId profilePic');
 
-          if (!room) {
+          if (!room || !room.isActive) {
                return res.status(404).json({
                     message: 'Room not found'
                });
@@ -186,10 +199,10 @@ const getParticipants = async (req, res) => {
      try {
           const roomId = req.params.id;
           const room = await Room.findById(roomId)
-               .populate('host', 'username')
-               .populate('participants.user', 'username email');
+               .populate('host', 'name email userId profilePic')
+               .populate('participants.user', 'name email userId profilePic');
 
-          if (!room) {
+          if (!room || !room.isActive) {
                return res.status(404).json({
                     message: 'Room not found'
                });
@@ -212,7 +225,8 @@ const getParticipants = async (req, res) => {
 const getRoomByCode = async (req, res) => {
      try {
           const room = await Room.findOne({
-               roomCode: req.params.roomCode
+               roomCode: req.params.roomCode,
+               isActive: true
           });
 
           if (!room) {
@@ -228,4 +242,122 @@ const getRoomByCode = async (req, res) => {
           });
      }
 };
-module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getParticipants, getRoomByCode };
+const kickParticipant = async (req, res) => {
+     try {
+          const roomId = req.params.id;
+          const userId = req.user.userId;
+          const { targetUserId } = req.body;
+
+          if (!targetUserId) {
+               return res.status(400).json({ message: 'Target User ID is required' });
+          }
+
+          const room = await Room.findById(roomId);
+          if (!room) {
+               return res.status(404).json({ message: 'Room not found' });
+          }
+
+          if (room.host.toString() !== userId) {
+               return res.status(403).json({ message: 'Only the host can kick participants' });
+          }
+
+          if (targetUserId === userId) {
+               return res.status(400).json({ message: 'You cannot kick yourself' });
+          }
+
+          room.participants = room.participants.filter(
+               p => p.user && p.user.toString() !== targetUserId
+          );
+
+          await room.save();
+
+          res.status(200).json({
+               message: 'Participant kicked successfully',
+               participants: room.participants
+          });
+
+     } catch (error) {
+          console.error("ERROR in kickParticipant:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+const toggleMuteParticipant = async (req, res) => {
+     try {
+          const roomId = req.params.id;
+          const userId = req.user.userId;
+          const { targetUserId } = req.body;
+
+          if (!targetUserId) {
+               return res.status(400).json({ message: 'Target User ID is required' });
+          }
+
+          const room = await Room.findById(roomId);
+          if (!room) {
+               return res.status(404).json({ message: 'Room not found' });
+          }
+
+          if (room.host.toString() !== userId) {
+               return res.status(403).json({ message: 'Only the host can mute participants' });
+          }
+
+          const participant = room.participants.find(
+               p => p.user && p.user.toString() === targetUserId
+          );
+
+          if (!participant) {
+               return res.status(404).json({ message: 'Participant not found in this room' });
+          }
+
+          participant.isMuted = !participant.isMuted;
+
+          await room.save();
+
+          res.status(200).json({
+               message: participant.isMuted ? 'Participant muted successfully' : 'Participant unmuted successfully',
+               isMuted: participant.isMuted,
+               participants: room.participants
+          });
+
+     } catch (error) {
+          console.error("ERROR in toggleMuteParticipant:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+const getUserRooms = async (req, res) => {
+     try {
+          const userId = req.user.userId;
+          const rooms = await Room.find({
+               $or: [
+                    { host: userId },
+                    { "participants.user": userId }
+               ]
+          })
+          .populate('host', 'name email userId profilePic')
+          .populate('participants.user', 'name email userId profilePic')
+          .sort({ updatedAt: -1 })
+          .limit(10);
+
+          res.status(200).json(rooms);
+     } catch (error) {
+          console.error("ERROR in getUserRooms:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+const getPublicRooms = async (req, res) => {
+     try {
+          const rooms = await Room.find({ privacy: 'public', isActive: true })
+               .populate('host', 'name email userId profilePic')
+               .populate('participants.user', 'name email userId profilePic')
+               .sort({ updatedAt: -1 });
+
+          res.status(200).json(rooms);
+     } catch (error) {
+          console.error("ERROR in getPublicRooms:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getParticipants, getRoomByCode, kickParticipant, toggleMuteParticipant, getUserRooms, getPublicRooms };

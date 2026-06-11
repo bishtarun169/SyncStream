@@ -6,7 +6,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
 
   const [password, setPassword] = useState("");
 
@@ -27,7 +27,7 @@ export default function Login() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
+          identifier,
           password,
         }),
       });
@@ -48,7 +48,11 @@ export default function Login() {
         }, 1000);
       } else {
         if (data.message && data.message.toLowerCase().includes("verify")) {
-          localStorage.setItem("verify_email", email);
+          if (data.email) {
+            localStorage.setItem("verify_email", data.email);
+          } else if (identifier.includes("@")) {
+            localStorage.setItem("verify_email", identifier);
+          }
         }
         setError(data.message || "Login failed");
       }
@@ -83,12 +87,12 @@ export default function Login() {
         <p className="text-center text-zinc-400 mt-2">Welcome back</p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-          {/* Email */}
+          {/* Email or User ID */}
           <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            placeholder="Email or User ID"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition"
             required
           />

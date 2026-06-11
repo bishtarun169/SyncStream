@@ -13,6 +13,14 @@ const userSchema = new mongoose.Schema({
     unique: true,
   },
 
+  userId: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    lowercase: true,
+  },
+
   password: {
     type: String,
     required: true,
@@ -70,6 +78,17 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  friends: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  notifications: [{
+    id: { type: String, required: true },
+    sender: { type: String, required: true },
+    text: { type: String, required: true },
+    room: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);

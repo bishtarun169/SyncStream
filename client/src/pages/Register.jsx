@@ -10,6 +10,8 @@ export default function Register() {
 
   const [fullName, setFullName] = useState("");
 
+  const [userId, setUserId] = useState("");
+
   const [email, setEmail] = useState("");
 
   const [password, setPassword] = useState("");
@@ -27,6 +29,17 @@ export default function Register() {
     setError("");
 
     // Client-side validation
+    const userIdRegex = /^[a-zA-Z0-9_.]+$/;
+    if (!userIdRegex.test(userId)) {
+      setError("User ID can only contain letters, numbers, underscores, and periods");
+      return;
+    }
+
+    if (userId.length < 3 || userId.length > 20) {
+      setError("User ID must be between 3 and 20 characters");
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -40,6 +53,7 @@ export default function Register() {
         },
         body: JSON.stringify({
           name: fullName,
+          userId,
           email,
           password,
           confirmPassword,
@@ -98,6 +112,16 @@ export default function Register() {
             placeholder="Full Name"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
+            className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition"
+            required
+          />
+
+          {/* User ID */}
+          <input
+            type="text"
+            placeholder="User ID (unique handle, e.g. john_doe)"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
             className="w-full bg-zinc-900/60 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition"
             required
           />

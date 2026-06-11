@@ -55,6 +55,10 @@ const roomSchema = new mongoose.Schema({
           type: String,
           enum: ["host", "member"],
           default: "member"
+     },
+     isMuted: {
+          type: Boolean,
+          default: false
      }
      }],
      // Sync state

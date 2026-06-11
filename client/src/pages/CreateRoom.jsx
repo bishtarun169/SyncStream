@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaGlobe, FaLock, FaUsers, FaHeading, FaChevronLeft, FaYoutube, FaTwitch, FaInstagram, FaLink, FaSignInAlt, FaInfoCircle } from "react-icons/fa";
+import Footer from "../components/Footer";
 
 export default function CreateRoom() {
   const navigate = useNavigate();
@@ -362,6 +363,7 @@ export default function CreateRoom() {
         </div>
 
       </div>
+      <Footer />
     </div>
   );
 }

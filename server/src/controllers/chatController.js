@@ -11,14 +11,14 @@ const sendMessage = async (req, res) => {
           }
 
           const message = await Message.create({
-               room: req.room._id,
+               chat: req.room._id,
                sender: req.user.userId,
                content
           });
 
           await message.populate(
                'sender',
-               'username'
+               'name profilePic userId'
           );
 
           res.status(201).json({
@@ -38,9 +38,9 @@ const sendMessage = async (req, res) => {
 const getMessages = async (req, res) => {
      try {
           const messages = await Message.find({
-               room: req.room._id
+               chat: req.room._id
           })
-               .populate('sender', 'username')
+               .populate('sender', 'name profilePic userId')
                .sort({ createdAt: 1 });
 
           res.status(200).json(messages);
