@@ -3,16 +3,40 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const sendOTPEmail = require('../utils/sendEmail');
+const validator = require('validator');
 require('dotenv').config();
+
+const validatePasswordStrength = (password) => {
+     if (!password || password.length < 8) {
+          return { isValid: false, message: 'Password must be at least 8 characters' };
+     }
+     if (!/[0-9]/.test(password) || !/[^a-zA-Z0-9]/.test(password)) {
+          return { isValid: false, message: 'Password must contain at least one number and one special character' };
+     }
+     return { isValid: true };
+};
 
 // User registration controller
 const registerUser = async (req, res) => {
      try {
-          const { name, email, password , confirmPassword, userId } = req.body;
+          let { name, email, password , confirmPassword, userId } = req.body;
           
           // Validate User ID
           if (!userId) {
                return res.status(400).json({ message: 'User ID is required' });
+          }
+
+          if (!email) {
+               return res.status(400).json({ message: 'Email is required' });
+          }
+
+          // Trim inputs
+          email = validator.trim(email);
+          userId = validator.trim(userId);
+
+          // Validate email
+          if (!validator.isEmail(email)) {
+               return res.status(400).json({ message: 'Invalid email address' });
           }
 
           const userIdRegex = /^[a-zA-Z0-9_.]+$/;
@@ -22,6 +46,12 @@ const registerUser = async (req, res) => {
 
           if (userId.length < 3 || userId.length > 20) {
                return res.status(400).json({ message: 'User ID must be between 3 and 20 characters' });
+          }
+
+          // Validate password strength
+          const passwordCheck = validatePasswordStrength(password);
+          if (!passwordCheck.isValid) {
+               return res.status(400).json({ message: passwordCheck.message });
           }
 
           // Check if passwords match
@@ -36,7 +66,7 @@ const registerUser = async (req, res) => {
           }
 
           // Check if user already exists by email
-          let user = await User.findOne({ email });
+          let user = await User.findOne({ email: email.toLowerCase() });
           if (user) {
                return res.status(400).json({ message: 'User already exists' });
           }
@@ -53,7 +83,7 @@ const registerUser = async (req, res) => {
           await sendOTPEmail(email, otp);
           
           // Create new user
-          user = new User({ name, email, password: hashedPassword, userId: userId.toLowerCase(), otp, otpExpiry, isVerified: false, friends: [] });
+          user = new User({ name, email: email.toLowerCase(), password: hashedPassword, userId: userId.toLowerCase(), otp, otpExpiry, isVerified: false, friends: [] });
           await user.save();
 
           res.status(201).json({ 
@@ -160,12 +190,14 @@ const loginUser = async (req, res) => {
                return res.status(400).json({ message: 'Email or User ID is required' });
           }
 
+          const trimmedIdentifier = validator.trim(identifier);
+
           // Check if identifier is email or userId
           let query = {};
-          if (identifier.includes('@')) {
-               query = { email: identifier.trim().toLowerCase() };
+          if (trimmedIdentifier.includes('@')) {
+               query = { email: trimmedIdentifier.toLowerCase() };
           } else {
-               query = { userId: identifier.trim().toLowerCase() };
+               query = { userId: trimmedIdentifier.toLowerCase() };
           }
 
           // Check if user exists
@@ -191,7 +223,15 @@ const loginUser = async (req, res) => {
 
           res.status(200).json({ 
                message: 'Login successful',
-               token 
+               token,
+               user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    userId: user.userId,
+                    profilePic: user.profilePic,
+                    settings: user.settings
+               }
           });
           
      } catch (error) {
@@ -217,12 +257,29 @@ const updateUser = async (req, res) => {
           const { name, profilePic, password, settings, gender, bio, location, birthday, otp } = req.body;
           const updates = {};
           if (name) updates.name = name;
-          if (profilePic !== undefined) updates.profilePic = profilePic;
           if (settings !== undefined) updates.settings = settings;
           if (gender !== undefined) updates.gender = gender;
           if (bio !== undefined) updates.bio = bio;
           if (location !== undefined) updates.location = location;
           if (birthday !== undefined) updates.birthday = birthday;
+
+          if (profilePic !== undefined) {
+               if (profilePic && profilePic.startsWith('data:')) {
+                    const mimeTypeMatch = profilePic.match(/^data:(image\/(jpeg|png|webp));base64,/);
+                    if (!mimeTypeMatch) {
+                         return res.status(400).json({ message: 'Only JPEG, PNG, and WebP images are allowed' });
+                    }
+                    const base64Data = profilePic.replace(/^data:image\/\w+;base64,/, "");
+                    if (Buffer.byteLength(base64Data, 'base64') > 2 * 1024 * 1024) {
+                         return res.status(400).json({ message: 'Image must be smaller than 2MB' });
+                    }
+                    const { uploadBase64Image } = require('../utils/uploadImage');
+                    const imageUrl = await uploadBase64Image(profilePic);
+                    updates.profilePic = imageUrl;
+               } else {
+                    updates.profilePic = profilePic;
+               }
+          }
 
           if (password) {
                if (!otp) {
@@ -240,6 +297,11 @@ const updateUser = async (req, res) => {
 
                if (user.otpExpiry < new Date()) {
                     return res.status(400).json({ message: 'OTP has expired' });
+               }
+
+               const passwordCheck = validatePasswordStrength(password);
+               if (!passwordCheck.isValid) {
+                    return res.status(400).json({ message: passwordCheck.message });
                }
 
                const salt = await bcrypt.genSalt(10);
@@ -264,7 +326,26 @@ const updateUser = async (req, res) => {
 // Delete user account
 const deleteUser = async (req, res) => {
      try {
-          await User.findByIdAndDelete(req.user.userId);
+          const userId = req.user.userId;
+          await User.findByIdAndDelete(userId);
+
+          // Clean up rooms hosted by this user
+          const Room = require('../models/Room');
+          await Room.updateMany({ host: userId }, { isActive: false });
+
+          // Remove user from participants in all rooms
+          await Room.updateMany(
+               { 'participants.user': userId },
+               { $pull: { participants: { user: userId } } }
+          );
+
+          // Remove user from all other users' friends list
+          await User.updateMany({ friends: userId }, { $pull: { friends: userId } });
+
+          // Anonymize/delete chat messages
+          const Message = require('../models/chat');
+          await Message.updateMany({ sender: userId }, { $set: { sender: null, content: '[deleted]' } });
+
           res.json({ message: 'Account deleted successfully' });
      } catch (error) {
           console.error("ERROR in deleteUser:", error);
@@ -290,6 +371,7 @@ const forgotPassword = async (req, res) => {
           ).toString();
 
           user.resetCode = resetCode;
+          user.resetCodeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
           await user.save();
 
           // Send reset code via email
@@ -320,13 +402,23 @@ const resetPassword = async (req, res) => {
                return res.status(400).json({ message: 'User not found' });
           }
 
+          if (!user.resetCodeExpiry || user.resetCodeExpiry < new Date()) {
+               return res.status(400).json({ message: 'Reset code has expired' });
+          }
+
           if (!user.resetCode || user.resetCode !== code) {
                return res.status(400).json({ message: 'Invalid recovery code' });
+          }
+
+          const passwordCheck = validatePasswordStrength(newPassword);
+          if (!passwordCheck.isValid) {
+               return res.status(400).json({ message: passwordCheck.message });
           }
 
           const salt = await bcrypt.genSalt(10);
           user.password = await bcrypt.hash(newPassword, salt);
           user.resetCode = undefined;
+          user.resetCodeExpiry = undefined;
           await user.save();
 
           res.status(200).json({ message: 'Password reset successful. You can log in now.' });
@@ -455,15 +547,23 @@ const inviteFriend = async (req, res) => {
 
           // Push invitation notification to friend
           const notificationId = Math.random().toString(36).substring(2, 11);
-          friendUser.notifications.push({
+          const notification = {
                id: notificationId,
                sender: currentUser.name,
                text: `invited you to watch: ${roomName || 'Watch Room'}`,
                room: roomId,
                createdAt: new Date()
-          });
+          };
+          friendUser.notifications.push(notification);
 
           await friendUser.save();
+
+          // Emit directly to friend's socket if connected
+          const userSocketMap = req.app.get('userSocketMap');
+          const io = req.app.get('io');
+          if (userSocketMap && io && userSocketMap.has(friendId)) {
+               io.to(userSocketMap.get(friendId)).emit("new-notification", notification);
+          }
 
           res.status(200).json({ message: 'Invitation sent successfully' });
 
@@ -499,6 +599,21 @@ const dismissNotification = async (req, res) => {
      }
 };
 
+// Remove a friend
+const removeFriend = async (req, res) => {
+     try {
+          const { friendUserId } = req.params;
+          const userId = req.user.userId;
+
+          await User.findByIdAndUpdate(userId, { $pull: { friends: friendUserId } });
+
+          res.status(200).json({ message: 'Friend removed successfully' });
+     } catch (error) {
+          console.error("ERROR in removeFriend:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
 module.exports = { 
      registerUser, 
      loginUser, 
@@ -513,5 +628,6 @@ module.exports = {
      addFriend,
      getFriends,
      inviteFriend,
-     dismissNotification
+     dismissNotification,
+     removeFriend
 };

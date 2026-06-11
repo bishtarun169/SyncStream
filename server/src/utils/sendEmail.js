@@ -14,7 +14,9 @@ const transporter = nodeMailer.createTransport({
 
 const sendOTPEmail = async (to, otp) => {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.log(`[DEVELOPMENT FALLBACK] OTP code for ${to} is: ${otp}`);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`[DEVELOPMENT FALLBACK] OTP code for ${to} is: ${otp}`);
+        }
         return;
     }
 
@@ -27,10 +29,12 @@ const sendOTPEmail = async (to, otp) => {
 
     try {
         await transporter.sendMail(mailOptions);
-        console.log(`OTP email sent to ${to}. OTP Code: ${otp}`);
+        console.log(`OTP email sent to ${to}`);
     } catch (error) {
         console.error(`Error sending OTP email to ${to}:`, error.message);
-        console.log(`[DEVELOPMENT FALLBACK] OTP code for ${to} is: ${otp}`);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`[DEVELOPMENT FALLBACK] OTP code for ${to} is: ${otp}`);
+        }
         // Do not throw so local registration does not crash if email is unconfigured
     }
 };

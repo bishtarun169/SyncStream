@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Room = require('../models/Room');
 const bcrypt = require('bcryptjs');
+const validator = require('validator');
 
 // Create a new room
 const createRoom = async (req, res) => {
@@ -8,10 +9,13 @@ const createRoom = async (req, res) => {
      try {
           const { roomName, videoURL, privacy, password, maxParticipants, mediaSource } = req.body;
           const hostId = req.user.userId;
+
           // Valid Room name
           if (!roomName) {
-               return res.status(400).json({ message: 'Room name are required' });
+               return res.status(400).json({ message: 'Room name is required' });
           }
+
+          const trimmedRoomName = validator.trim(roomName);
 
           // Media source validation
           if (!mediaSource) {
@@ -23,8 +27,19 @@ const createRoom = async (req, res) => {
                return res.status(400).json({ message: 'Video URL is required' });
           }
 
-          // Generate unique room code
-          const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+          // Validate URL unless Twitch channel name
+          if (mediaSource !== 'twitch') {
+               if (!validator.isURL(videoURL, { require_protocol: true })) {
+                    return res.status(400).json({ message: 'Invalid video URL' });
+               }
+          }
+
+          // Generate unique room code with uniqueness retry logic
+          let roomCode, existing;
+          do {
+               roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+               existing = await Room.findOne({ roomCode });
+          } while (existing);
 
           // Hash password if room is private
           let hashedPassword = null;
@@ -38,7 +53,7 @@ const createRoom = async (req, res) => {
 
           // Create new room
           const room = new Room({
-               roomName,
+               roomName: trimmedRoomName,
                videoURL,
                privacy,
                password: hashedPassword,
@@ -55,6 +70,15 @@ const createRoom = async (req, res) => {
           console.log("before save");
           await room.save();
           console.log("Room saved");
+
+          // Increment host's roomsCreated stat
+          await User.findByIdAndUpdate(hostId, { $inc: { roomsCreated: 1 } });
+
+          // Broadcast public rooms update if room is public
+          const io = req.app.get("io");
+          if (io && privacy === 'public') {
+               io.to("public-rooms").emit("public-rooms-updated");
+          }
 
           res.status(201).json({ message: 'Room created successfully', room });
      } catch (error) {
@@ -76,7 +100,10 @@ const joinRoom = async (req, res) => {
           }
 
           // Check if user is already a participant
-          if (room.participants.some(p => p.user && p.user.toString() === userId)) {
+          const isAlreadyParticipant = room.participants.some(p => p.user && p.user.toString() === userId);
+          const isHost = room.host.toString() === userId;
+
+          if (isAlreadyParticipant) {
                return res.status(200).json({
                     message: 'You are already in this room',
                     roomCode: room.roomCode,
@@ -96,13 +123,25 @@ const joinRoom = async (req, res) => {
                     return res.status(400).json({ message: 'Incorrect password' });
                }
           }
+
+          // Enforce allowJoinRequests setting
+          if (!isHost) {
+               const host = await User.findById(room.host).select('friends settings');
+               if (host && host.settings && host.settings.allowJoinRequests === 'friends') {
+                    const friendsList = host.friends ? host.friends.map(f => f.toString()) : [];
+                    if (!friendsList.includes(userId)) {
+                         return res.status(403).json({ message: 'The host only allows friends to join their rooms' });
+                    }
+               }
+          }
+
           // Check if room is full
           if (room.participants.length >= room.maxParticipants) {
                return res.status(400).json({ message: 'Room is full' });
           }
 
           // Add user to participants atomically to prevent duplicate joins due to React strict mode / concurrent calls
-          await Room.updateOne(
+          const result = await Room.updateOne(
                { _id: room._id, "participants.user": { $ne: userId } },
                {
                     $push: {
@@ -114,6 +153,17 @@ const joinRoom = async (req, res) => {
                     }
                }
           );
+
+          if (result.modifiedCount > 0) {
+               // Increment user's roomsJoined stat
+               await User.findByIdAndUpdate(userId, { $inc: { roomsJoined: 1 } });
+
+               // Broadcast public rooms update if room is public
+               const io = req.app.get("io");
+               if (io && room.privacy === 'public') {
+                    io.to("public-rooms").emit("public-rooms-updated");
+               }
+          }
 
           res.status(200).json({
                message: 'Joined room successfully',
@@ -132,20 +182,20 @@ const joinRoom = async (req, res) => {
 // Leave a room
 const leaveRoom = async (req, res) => {
      try {
-          const roomId = req.params.id;
           const userId = req.user.userId;
-
-          const room = await Room.findById(roomId);
-
-          if (!room) {
-               return res.status(404).json({
-                    message: "Room not found"
-               });
-          }
+          const room = req.room;
+          const io = req.app.get("io");
 
           if (room.host.toString() === userId) {
                room.isActive = false;
                await room.save();
+
+               if (io) {
+                    io.to(room.roomCode).emit("room-ended");
+                    if (room.privacy === "public") {
+                         io.to("public-rooms").emit("public-rooms-updated");
+                    }
+               }
 
                return res.status(200).json({
                     message: "Host left. Room ended."
@@ -157,6 +207,13 @@ const leaveRoom = async (req, res) => {
           );
 
           await room.save();
+
+          if (io) {
+               io.to(room.roomCode).emit("participant-left", { userId });
+               if (room.privacy === "public") {
+                    io.to("public-rooms").emit("public-rooms-updated");
+               }
+          }
 
           res.status(200).json({
                message: "Left room successfully"
@@ -173,12 +230,12 @@ const leaveRoom = async (req, res) => {
 // Get room details by ID
 const getRoom = async (req, res) => {
      try {
-          const roomId = req.params.id;
-          const room = await Room.findById(roomId)
-               .populate('host', 'name email userId profilePic')
-               .populate('participants.user', 'name email userId profilePic');
+          const room = await req.room.populate([
+               { path: 'host', select: 'name email userId profilePic' },
+               { path: 'participants.user', select: 'name email userId profilePic' }
+          ]);
 
-          if (!room || !room.isActive) {
+          if (!room.isActive) {
                return res.status(404).json({
                     message: 'Room not found'
                });
@@ -197,12 +254,12 @@ const getRoom = async (req, res) => {
 // Get participants of a room
 const getParticipants = async (req, res) => {
      try {
-          const roomId = req.params.id;
-          const room = await Room.findById(roomId)
-               .populate('host', 'name email userId profilePic')
-               .populate('participants.user', 'name email userId profilePic');
+          const room = await req.room.populate([
+               { path: 'host', select: 'name email userId profilePic' },
+               { path: 'participants.user', select: 'name email userId profilePic' }
+          ]);
 
-          if (!room || !room.isActive) {
+          if (!room.isActive) {
                return res.status(404).json({
                     message: 'Room not found'
                });
@@ -227,7 +284,7 @@ const getRoomByCode = async (req, res) => {
           const room = await Room.findOne({
                roomCode: req.params.roomCode,
                isActive: true
-          });
+          }).populate('host', '_id name');
 
           if (!room) {
                return res.status(404).json({
@@ -244,21 +301,12 @@ const getRoomByCode = async (req, res) => {
 };
 const kickParticipant = async (req, res) => {
      try {
-          const roomId = req.params.id;
           const userId = req.user.userId;
           const { targetUserId } = req.body;
+          const room = req.room;
 
           if (!targetUserId) {
                return res.status(400).json({ message: 'Target User ID is required' });
-          }
-
-          const room = await Room.findById(roomId);
-          if (!room) {
-               return res.status(404).json({ message: 'Room not found' });
-          }
-
-          if (room.host.toString() !== userId) {
-               return res.status(403).json({ message: 'Only the host can kick participants' });
           }
 
           if (targetUserId === userId) {
@@ -284,21 +332,11 @@ const kickParticipant = async (req, res) => {
 
 const toggleMuteParticipant = async (req, res) => {
      try {
-          const roomId = req.params.id;
-          const userId = req.user.userId;
           const { targetUserId } = req.body;
+          const room = req.room;
 
           if (!targetUserId) {
                return res.status(400).json({ message: 'Target User ID is required' });
-          }
-
-          const room = await Room.findById(roomId);
-          if (!room) {
-               return res.status(404).json({ message: 'Room not found' });
-          }
-
-          if (room.host.toString() !== userId) {
-               return res.status(403).json({ message: 'Only the host can mute participants' });
           }
 
           const participant = room.participants.find(
@@ -321,6 +359,28 @@ const toggleMuteParticipant = async (req, res) => {
 
      } catch (error) {
           console.error("ERROR in toggleMuteParticipant:", error);
+          res.status(500).json({ message: 'Server error' });
+     }
+};
+
+// Update Room Settings
+const updateRoomSettings = async (req, res) => {
+     try {
+          const { chatDisabled, muteAll, roomLocked } = req.body;
+          const room = req.room;
+
+          if (chatDisabled !== undefined) room.chatDisabled = chatDisabled;
+          if (muteAll !== undefined) room.muteAll = muteAll;
+          if (roomLocked !== undefined) room.roomLocked = roomLocked;
+
+          await room.save();
+
+          res.status(200).json({
+               message: 'Room settings updated successfully',
+               room
+          });
+     } catch (error) {
+          console.error("ERROR in updateRoomSettings:", error);
           res.status(500).json({ message: 'Server error' });
      }
 };
@@ -360,4 +420,4 @@ const getPublicRooms = async (req, res) => {
      }
 };
 
-module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getParticipants, getRoomByCode, kickParticipant, toggleMuteParticipant, getUserRooms, getPublicRooms };
+module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getParticipants, getRoomByCode, kickParticipant, toggleMuteParticipant, getUserRooms, getPublicRooms, updateRoomSettings };

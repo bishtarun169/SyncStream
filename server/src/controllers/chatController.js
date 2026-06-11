@@ -10,10 +10,16 @@ const sendMessage = async (req, res) => {
                });
           }
 
+          if (req.room.chatDisabled) {
+               return res.status(403).json({
+                    message: 'Chat is disabled in this room'
+               });
+          }
+
           const message = await Message.create({
                chat: req.room._id,
                sender: req.user.userId,
-               content
+               content: content.trim()
           });
 
           await message.populate(

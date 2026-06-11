@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import Footer from "../components/Footer";
+import { io } from "socket.io-client";
+import { API_BASE } from "../config/api";
 import {
   FaUser,
   FaPlus,
@@ -27,8 +29,24 @@ import {
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard"); // "dashboard" or "profile"
   
+  // Toast state
+  const [toast, setToast] = useState({ message: "", type: "" });
+  const showToast = (message, type = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: "", type: "" }), 4000);
+  };
+
+  useEffect(() => {
+    if (location.state && location.state.infoMessage) {
+      showToast(location.state.infoMessage, "info");
+      // Clear location state to prevent toast showing again on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
+
   // User profile state
   const [user, setUser] = useState({
     name: "Loading...",
@@ -37,7 +55,7 @@ export default function Home() {
     profilePic: "",
     createdAt: "",
     settings: {
-      theme: "dark",
+      theme: "light",
       allowJoinRequests: "everyone",
     }
   });
@@ -69,7 +87,7 @@ export default function Home() {
 
   // Settings states
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTheme, setSettingsTheme] = useState("dark"); // "dark" | "light" | "system"
+  const [settingsTheme, setSettingsTheme] = useState("light"); // "dark" | "light" | "system"
   const [settingsAllowJoinRequests, setSettingsAllowJoinRequests] = useState("everyone"); // "everyone" | "friends"
   const [settingsError, setSettingsError] = useState("");
   const [settingsSuccess, setSettingsSuccess] = useState("");
@@ -103,16 +121,36 @@ export default function Home() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
-  // Load user data on mount and poll for notifications
+  // Reactive Socket.io connection
+  const [socket, setSocket] = useState(null);
+
+  useEffect(() => {
+    const newSocket = io(API_BASE);
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (socket && user && user._id && user._id !== "Loading...") {
+      socket.emit("join-home", { userId: user._id });
+
+      socket.on("new-notification", (notification) => {
+        setNotifications((prev) => [notification, ...prev]);
+      });
+
+      return () => {
+        socket.off("new-notification");
+      };
+    }
+  }, [socket, user]);
+
+  // Load user data on mount
   useEffect(() => {
     fetchProfile();
     fetchRecentRooms();
-
-    const interval = setInterval(() => {
-      fetchProfile();
-    }, 8000);
-
-    return () => clearInterval(interval);
   }, []);
 
   const fetchProfile = async () => {
@@ -123,7 +161,7 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/me", {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -144,7 +182,7 @@ export default function Home() {
             _id: f._id,
             name: f.name,
             userId: f.userId,
-            status: "online",
+            status: "offline",
             avatar: f.name ? f.name.charAt(0).toUpperCase() : "U"
           })));
         }
@@ -152,8 +190,10 @@ export default function Home() {
           setNotifications(data.user.notifications);
         }
         if (data.user.settings) {
-          setSettingsTheme(data.user.settings.theme || "dark");
+          const loadedTheme = data.user.settings.theme || "light";
+          setSettingsTheme(loadedTheme);
           setSettingsAllowJoinRequests(data.user.settings.allowJoinRequests || "everyone");
+          localStorage.setItem("theme", loadedTheme);
         }
       } else {
         console.error("Failed to fetch user:", data.message);
@@ -192,16 +232,26 @@ export default function Home() {
     setEditError("");
     setEditSuccess("");
 
-    if (editPassword && !editOtp) {
-      setEditError("OTP code is required to change password");
-      return;
+    if (editPassword) {
+      if (editPassword.length < 8) {
+        setEditError("Password must be at least 8 characters");
+        return;
+      }
+      if (!/[0-9]/.test(editPassword) || !/[^a-zA-Z0-9]/.test(editPassword)) {
+        setEditError("Password must contain at least one number and one special character");
+        return;
+      }
+      if (!editOtp) {
+        setEditError("OTP code is required to change password");
+        return;
+      }
     }
 
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/update", {
+      const response = await fetch(`${API_BASE}/api/auth/update`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -249,7 +299,7 @@ export default function Home() {
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/request-password-otp", {
+      const response = await fetch(`${API_BASE}/api/auth/request-password-otp`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -281,7 +331,7 @@ export default function Home() {
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/update", {
+      const response = await fetch(`${API_BASE}/api/auth/update`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -299,10 +349,13 @@ export default function Home() {
       if (response.ok) {
         setSettingsSuccess("Settings saved successfully!");
         setUser(data.user);
+        if (data.user?.settings?.theme) {
+          localStorage.setItem("theme", data.user.settings.theme);
+        }
         setTimeout(() => {
           setIsSettingsModalOpen(false);
           setSettingsSuccess("");
-        }, 1500);
+        }, 1505);
       } else {
         setSettingsError(data.message || "Failed to save settings");
       }
@@ -319,7 +372,7 @@ export default function Home() {
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/delete", {
+      const response = await fetch(`${API_BASE}/api/auth/delete`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -347,7 +400,7 @@ export default function Home() {
 
     // Check if friend already exists in list (by userId)
     if (friends.some(f => f.userId && f.userId.toLowerCase() === targetUserId.toLowerCase())) {
-      alert("This user is already in your friend list.");
+      showToast("This user is already in your friend list.", "error");
       return;
     }
 
@@ -355,7 +408,7 @@ export default function Home() {
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/friends/add", {
+      const response = await fetch(`${API_BASE}/api/auth/friends/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -370,17 +423,48 @@ export default function Home() {
           _id: data.friend._id,
           name: data.friend.name,
           userId: data.friend.userId,
-          status: "online",
+          status: "offline",
           avatar: data.friend.name ? data.friend.name.charAt(0).toUpperCase() : "U"
         };
         setFriends([...friends, newFriend]);
         setNewFriendName("");
+        showToast("Friend added successfully!", "success");
       } else {
-        alert(data.message || "Could not add friend.");
+        showToast(data.message || "Could not add friend.", "error");
       }
     } catch (err) {
       console.error("Error adding friend:", err);
-      alert("Failed to connect to server to add friend.");
+      showToast("Failed to connect to server to add friend.", "error");
+    }
+  };
+
+  // Remove friend handler
+  const handleRemoveFriend = async (friendId) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    if (!window.confirm("Are you sure you want to remove this friend?")) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/friends/${friendId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setFriends((prev) => prev.filter(f => f._id !== friendId));
+        showToast("Friend removed successfully.", "success");
+      } else {
+        showToast(data.message || "Failed to remove friend.", "error");
+      }
+    } catch (err) {
+      console.error("Error removing friend:", err);
+      showToast("Failed to connect to server to remove friend.", "error");
     }
   };
 
@@ -400,7 +484,7 @@ export default function Home() {
     const token = localStorage.getItem("token");
     if (!token) return;
     try {
-      const response = await fetch("http://localhost:5000/api/rooms", {
+      const response = await fetch(`${API_BASE}/api/rooms`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -435,7 +519,7 @@ export default function Home() {
     if (!token) return;
 
     try {
-      await fetch("http://localhost:5000/api/auth/notifications/dismiss", {
+      await fetch(`${API_BASE}/api/auth/notifications/dismiss`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -447,6 +531,10 @@ export default function Home() {
       console.error("Failed to dismiss notification on server:", err);
     }
   };
+
+  const isEditLengthMet = editPassword.length >= 8;
+  const isEditNumberMet = /[0-9]/.test(editPassword);
+  const isEditSpecialMet = /[^a-zA-Z0-9]/.test(editPassword);
 
   // Theme variable configurations
   const isLight = currentTheme === "light";
@@ -811,6 +899,13 @@ export default function Home() {
                           </span>
                         </div>
                       </div>
+                      <button
+                        onClick={() => handleRemoveFriend(friend._id)}
+                        className="text-zinc-500 hover:text-red-500 p-1.5 transition rounded-lg hover:bg-red-500/10 cursor-pointer"
+                        title="Remove Friend"
+                      >
+                        <FaTimes size={12} />
+                      </button>
                     </div>
                   ))
                 )}
@@ -910,19 +1005,19 @@ export default function Home() {
             <div className="grid grid-cols-3 gap-4">
               <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
                 <div className="text-red-500 flex justify-center"><FaTv size={18} /></div>
-                <h4 className="text-xl sm:text-2xl font-extrabold">12</h4>
+                <h4 className="text-xl sm:text-2xl font-extrabold">{user.roomsCreated || 0}</h4>
                 <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Rooms Created</p>
               </div>
 
               <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
                 <div className="text-red-500 flex justify-center"><FaSignInAlt size={18} /></div>
-                <h4 className="text-xl sm:text-2xl font-extrabold">45</h4>
+                <h4 className="text-xl sm:text-2xl font-extrabold">{user.roomsJoined || 0}</h4>
                 <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Rooms Joined</p>
               </div>
 
               <div className={`${cardNestedThemeClass} p-6 rounded-2xl text-center space-y-1 border ${isLight ? 'border-zinc-200' : 'border-zinc-800/20'}`}>
                 <div className="text-red-500 flex justify-center"><FaClock size={18} /></div>
-                <h4 className="text-xl sm:text-2xl font-extrabold">34.5h</h4>
+                <h4 className="text-xl sm:text-2xl font-extrabold">{((user.totalWatchMinutes || 0) / 60).toFixed(1)}h</h4>
                 <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-xs uppercase tracking-wider`}>Hours Watched</p>
               </div>
             </div>
@@ -1069,6 +1164,27 @@ export default function Home() {
                   className={`w-full rounded-xl px-3.5 py-2.5 text-xs outline-none transition border ${inputThemeClass}`}
                 />
               </div>
+
+              {/* Edit Password Strength Checklist */}
+              {editPassword && (
+                <div className="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800 text-xs space-y-1.5 text-left">
+                  <p className="text-zinc-400 font-semibold">Password Requirements:</p>
+                  <ul className="space-y-1">
+                    <li className={`flex items-center gap-2 transition-colors duration-205 ${isEditLengthMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isEditLengthMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                      At least 8 characters
+                    </li>
+                    <li className={`flex items-center gap-2 transition-colors duration-205 ${isEditNumberMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isEditNumberMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                      At least one number
+                    </li>
+                    <li className={`flex items-center gap-2 transition-colors duration-205 ${isEditSpecialMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isEditSpecialMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                      At least one special character
+                    </li>
+                  </ul>
+                </div>
+              )}
 
               {editPassword && (
                 <div className={`p-4 rounded-2xl border space-y-3 text-left ${isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-zinc-900/40 border-zinc-800'}`}>
@@ -1309,7 +1425,24 @@ export default function Home() {
         </div>
       )}
 
-      <Footer />
+      <Footer theme={currentTheme} />
+      {/* Toast Alert Banner */}
+      {toast.message && (
+        <div className="fixed bottom-5 right-5 z-[100] animate-fadeIn">
+          <div className={`backdrop-blur-md px-6 py-4 rounded-2xl border flex items-center gap-3 shadow-2xl max-w-sm ${
+            toast.type === "success"
+              ? "bg-green-500/10 border-green-500/30 text-green-400"
+              : toast.type === "error"
+              ? "bg-red-500/10 border-red-500/30 text-red-400"
+              : "bg-zinc-800/90 border-zinc-700 text-white"
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${
+              toast.type === "success" ? "bg-green-500 animate-pulse" : toast.type === "error" ? "bg-red-500 animate-pulse" : "bg-white animate-pulse"
+            }`} />
+            <span className="text-xs font-bold leading-normal">{toast.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

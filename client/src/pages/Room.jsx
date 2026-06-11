@@ -33,6 +33,7 @@ import {
 } from "react-icons/fa";
 import { io } from "socket.io-client";
 import ReactPlayer from "react-player";
+import { API_BASE } from "../config/api";
 
 // Resolve Vite ReactPlayer default export compatibility
 const Player = React.forwardRef((props, ref) => {
@@ -47,7 +48,6 @@ export default function Room() {
 
   // Retrieve state parameters passed from creation or join
   const passedState = location.state || {};
-  const isCreator = passedState.isCreator !== undefined ? passedState.isCreator : true;
   const initialNickname = passedState.nickname || "Host";
   const initialRoomName = passedState.roomName || "Watch Party Room";
 
@@ -63,6 +63,13 @@ export default function Room() {
   const [invitedFriends, setInvitedFriends] = useState({});
   const [activeTab, setActiveTab] = useState("chat"); // "chat" or "participants"
   const [showSettings, setShowSettings] = useState(false);
+
+  // Toast notifications state
+  const [toast, setToast] = useState({ message: "", type: "" });
+  const showToast = (message, type = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: "", type: "" }), 4000);
+  };
 
   // Sidebar and Fullscreen states
   const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
@@ -80,7 +87,11 @@ export default function Room() {
   const [inputValue, setInputValue] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); 
-  const [isMuted, setIsMuted] = useState(!isCreator);
+  const isHost = room?.host?._id?.toString() && currentUser?._id?.toString()
+    ? room.host._id.toString() === currentUser._id.toString()
+    : false;
+  const isCreator = isHost;
+  const [isMuted, setIsMuted] = useState(true);
 
   // Fetch logged-in user profile
   const fetchCurrentUser = async () => {
@@ -90,7 +101,7 @@ export default function Room() {
         navigate("/login");
         return;
       }
-      const response = await fetch("http://localhost:5000/api/auth/me", {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -107,13 +118,13 @@ export default function Room() {
     }
   };
 
-  // Mock initial load of room details
+  // Load room details
   const fetchRoom = async () => {
     try {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/rooms/code/${roomId}`,
+        `${API_BASE}/api/rooms/code/${roomId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`
@@ -127,6 +138,11 @@ export default function Room() {
 
       setRoom(data);
       setRoomName(data.roomName);
+
+      // Load settings from room details
+      setChatDisabled(!!data.chatDisabled);
+      setMuteAll(!!data.muteAll);
+      setRoomLocked(!!data.roomLocked);
 
       // Load video info from DB
       setMediaSource(data.mediaSource);
@@ -144,7 +160,7 @@ export default function Room() {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      const response = await fetch("http://localhost:5000/api/auth/friends", {
+      const response = await fetch(`${API_BASE}/api/auth/friends`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -162,7 +178,7 @@ export default function Room() {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      await fetch("http://localhost:5000/api/rooms/join-room", {
+      await fetch(`${API_BASE}/api/rooms/join-room`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -180,10 +196,17 @@ export default function Room() {
     fetchCurrentUser();
     fetchRoom();
     fetchFriends();
-    if (!isCreator) {
-      joinRoomApi();
-    }
   }, [roomId]);
+
+  useEffect(() => {
+    if (currentUser && room) {
+      const isUserHost = room.host?._id?.toString() === currentUser._id?.toString();
+      setIsMuted(!isUserHost);
+      if (!isUserHost) {
+        joinRoomApi();
+      }
+    }
+  }, [currentUser, room]);
 
   // Chat message states
   const [messages, setMessages] = useState([
@@ -249,10 +272,10 @@ export default function Room() {
 
   // Socket connection and event handlers
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !room) return;
 
     // Connect to Socket.io server
-    const socket = io("http://localhost:5000");
+    const socket = io(API_BASE);
     socketRef.current = socket;
 
     socket.emit("join-room", {
@@ -336,16 +359,63 @@ export default function Room() {
       setMessages((prev) => [...prev, message]);
     });
 
+    // Real-time participant joined
+    socket.on("participant-joined", ({ user: newUser, role: newRole, isMuted: pMuted, joinedAt }) => {
+      setParticipants((prev) => {
+        const exists = prev.some(p => (p.user?._id || p.user)?.toString() === newUser._id.toString());
+        if (exists) return prev;
+        return [...prev, { user: newUser, role: newRole, isMuted: pMuted, joinedAt }];
+      });
+    });
+
+    // Real-time participant left
+    socket.on("participant-left", ({ userId }) => {
+      setParticipants((prev) => prev.filter(p => (p.user?._id || p.user)?.toString() !== userId.toString()));
+    });
+
+    // Real-time user kicked listener
+    socket.on("user-kicked", ({ targetUserId }) => {
+      if (currentUser && currentUser._id?.toString() === targetUserId?.toString()) {
+        navigate("/home", { state: { infoMessage: "You have been kicked from the room by the host." } });
+      } else {
+        setParticipants((prev) => prev.filter(p => (p.user?._id || p.user)?.toString() !== targetUserId.toString()));
+      }
+    });
+
+    // Real-time user mute listener
+    socket.on("user-mute-toggled", ({ targetUserId, isMuted: newMuteState }) => {
+      setParticipants((prev) =>
+        prev.map(p => {
+          const pId = p.user?._id || p.user;
+          if (pId?.toString() === targetUserId.toString()) {
+            return { ...p, isMuted: newMuteState };
+          }
+          return p;
+        })
+      );
+    });
+
+    // Real-time room settings changed listener
+    socket.on("room-settings-changed", (settings) => {
+      if (settings.chatDisabled !== undefined) setChatDisabled(settings.chatDisabled);
+      if (settings.muteAll !== undefined) setMuteAll(settings.muteAll);
+      if (settings.roomLocked !== undefined) setRoomLocked(settings.roomLocked);
+    });
+
+    socket.on("room-ended", () => {
+      navigate("/home", { state: { infoMessage: "The host has left. The watch party has ended." } });
+    });
+
     return () => {
       socket.disconnect();
     };
-  }, [currentUser, roomId]);
+  }, [currentUser, roomId, room]);
 
   // Fetch chat messages from DB
   const fetchChatMessages = async (roomDbId) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/api/chat/${roomDbId}`, {
+      const response = await fetch(`${API_BASE}/api/chat/${roomDbId}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -455,7 +525,7 @@ export default function Room() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5000/api/rooms/${room._id}/participants`,
+        `${API_BASE}/api/rooms/${room._id}/participants`,
         {
           headers: {
             Authorization: `Bearer ${token}`
@@ -464,8 +534,7 @@ export default function Room() {
       );
 
       if (response.status === 404) {
-        alert("This room has been ended by the host.");
-        navigate("/home");
+        navigate("/home", { state: { infoMessage: "This room has been ended by the host." } });
         return;
       }
 
@@ -481,8 +550,7 @@ export default function Room() {
             return pId?.toString() === currentUser._id?.toString();
           });
           if (!isStillInRoom) {
-            alert("You have been kicked from the room by the host.");
-            navigate("/home");
+            navigate("/home", { state: { infoMessage: "You have been kicked from the room by the host." } });
             return;
           }
         }
@@ -497,10 +565,6 @@ export default function Room() {
   useEffect(() => {
     if (room?._id) {
       fetchParticipants();
-      const interval = setInterval(() => {
-        fetchParticipants();
-      }, 5000);
-      return () => clearInterval(interval);
     }
   }, [room]);
 
@@ -585,7 +649,7 @@ export default function Room() {
     setInvitedFriends((prev) => ({ ...prev, [friendId]: "sending" }));
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/api/auth/friends/invite", {
+      const response = await fetch(`${API_BASE}/api/auth/friends/invite`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -609,13 +673,14 @@ export default function Room() {
 
       if (response.ok) {
         setInvitedFriends((prev) => ({ ...prev, [friendId]: "invited" }));
+        showToast("Invitation sent successfully!", "success");
       } else {
-        alert(data.message || "Failed to invite friend");
+        showToast(data.message || "Failed to invite friend", "error");
         setInvitedFriends((prev) => ({ ...prev, [friendId]: "failed" }));
       }
     } catch (error) {
       console.error("Error inviting friend:", error);
-      alert("Error inviting friend: " + error.message);
+      showToast("Error inviting friend: " + error.message, "error");
       setInvitedFriends((prev) => ({ ...prev, [friendId]: "failed" }));
     }
   };
@@ -663,7 +728,7 @@ export default function Room() {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/api/chat/${room._id}`, {
+      const response = await fetch(`${API_BASE}/api/chat/${room._id}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -692,7 +757,7 @@ export default function Room() {
           socketRef.current.emit("send-chat-message", { roomId, message: msg });
         }
       } else {
-        alert(data.message || "Failed to send message");
+        showToast(data.message || "Failed to send message", "error");
       }
     } catch (err) {
       console.error("Error sending chat message:", err);
@@ -704,7 +769,7 @@ export default function Room() {
       try {
         const token = localStorage.getItem("token");
         if (token && room?._id) {
-          await fetch(`http://localhost:5000/api/rooms/${room._id}/leave`, {
+          await fetch(`${API_BASE}/api/rooms/${room._id}/leave`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`
@@ -722,7 +787,7 @@ export default function Room() {
     if (!window.confirm("Are you sure you want to kick this participant from the room?")) return;
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/api/rooms/${room._id}/kick`, {
+      const response = await fetch(`${API_BASE}/api/rooms/${room._id}/kick`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -733,20 +798,25 @@ export default function Room() {
 
       const data = await response.json();
       if (response.ok) {
-        fetchParticipants();
+        // Emit direct socket event
+        if (socketRef.current) {
+          socketRef.current.emit("kick-user", { roomId, targetUserId });
+        }
+        // Update local state instantly
+        setParticipants((prev) => prev.filter(p => (p.user?._id || p.user)?.toString() !== targetUserId.toString()));
       } else {
-        alert(data.message || "Failed to kick participant");
+        showToast(data.message || "Failed to kick participant", "error");
       }
     } catch (error) {
       console.error("Error kicking participant:", error);
-      alert("Error kicking participant: " + error.message);
+      showToast("Error kicking participant: " + error.message, "error");
     }
   };
 
   const handleToggleMute = async (targetUserId) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/api/rooms/${room._id}/mute`, {
+      const response = await fetch(`${API_BASE}/api/rooms/${room._id}/mute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -757,13 +827,69 @@ export default function Room() {
 
       const data = await response.json();
       if (response.ok) {
-        fetchParticipants();
+        // Emit direct socket event
+        if (socketRef.current) {
+          socketRef.current.emit("mute-user", { roomId, targetUserId, isMuted: data.isMuted });
+        }
+        // Update local state instantly
+        setParticipants((prev) =>
+          prev.map(p => {
+            const pId = p.user?._id || p.user;
+            if (pId?.toString() === targetUserId.toString()) {
+              return { ...p, isMuted: data.isMuted };
+            }
+            return p;
+          })
+        );
       } else {
-        alert(data.message || "Failed to toggle mute");
+        showToast(data.message || "Failed to toggle mute", "error");
       }
     } catch (error) {
       console.error("Error toggling mute:", error);
-      alert("Error toggling mute: " + error.message);
+      showToast("Error toggling mute: " + error.message, "error");
+    }
+  };
+
+  // Persist settings toggles to database and broadcast to room
+  const handleToggleSetting = async (settingName, currentValue) => {
+    const newValue = !currentValue;
+
+    if (settingName === "chatDisabled") setChatDisabled(newValue);
+    if (settingName === "muteAll") setMuteAll(newValue);
+    if (settingName === "roomLocked") setRoomLocked(newValue);
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`${API_BASE}/api/rooms/${room._id}/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          [settingName]: newValue
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        if (socketRef.current) {
+          socketRef.current.emit("room-settings-update", {
+            roomId,
+            settings: { [settingName]: newValue }
+          });
+        }
+      } else {
+        console.error("Failed to update settings in backend:", data.message);
+        if (settingName === "chatDisabled") setChatDisabled(currentValue);
+        if (settingName === "muteAll") setMuteAll(currentValue);
+        if (settingName === "roomLocked") setRoomLocked(currentValue);
+      }
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      if (settingName === "chatDisabled") setChatDisabled(currentValue);
+      if (settingName === "muteAll") setMuteAll(currentValue);
+      if (settingName === "roomLocked") setRoomLocked(currentValue);
     }
   };
 
@@ -844,7 +970,7 @@ export default function Room() {
                           <FaCommentSlash className="text-red-500" size={12} /> Disable Chat
                         </span>
                         <button
-                          onClick={() => setChatDisabled(!chatDisabled)}
+                          onClick={() => handleToggleSetting("chatDisabled", chatDisabled)}
                           className={`w-8 h-4 rounded-full transition duration-200 relative ${chatDisabled ? "bg-red-600" : "bg-zinc-700"}`}
                         >
                           <span className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.25 transition-all duration-200 ${chatDisabled ? "left-4" : "left-0.5"}`}></span>
@@ -856,7 +982,7 @@ export default function Room() {
                           <FaVolumeMute className="text-red-500" size={12} /> Mute Everyone
                         </span>
                         <button
-                          onClick={() => setMuteAll(!muteAll)}
+                          onClick={() => handleToggleSetting("muteAll", muteAll)}
                           className={`w-8 h-4 rounded-full transition duration-200 relative ${muteAll ? "bg-red-600" : "bg-zinc-700"}`}
                         >
                           <span className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.25 transition-all duration-200 ${muteAll ? "left-4" : "left-0.5"}`}></span>
@@ -868,7 +994,7 @@ export default function Room() {
                           <FaLock className="text-red-500" size={11} /> Lock Room
                         </span>
                         <button
-                          onClick={() => setRoomLocked(!roomLocked)}
+                          onClick={() => handleToggleSetting("roomLocked", roomLocked)}
                           className={`w-8 h-4 rounded-full transition duration-200 relative ${roomLocked ? "bg-red-600" : "bg-zinc-700"}`}
                         >
                           <span className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.25 transition-all duration-200 ${roomLocked ? "left-4" : "left-0.5"}`}></span>
@@ -1397,6 +1523,23 @@ export default function Room() {
 
       </main>
 
+      {/* Toast Alert Banner */}
+      {toast.message && (
+        <div className="fixed bottom-5 right-5 z-[100] animate-fadeIn">
+          <div className={`backdrop-blur-md px-6 py-4 rounded-2xl border flex items-center gap-3 shadow-2xl max-w-sm ${
+            toast.type === "success"
+              ? "bg-green-500/10 border-green-500/30 text-green-400"
+              : toast.type === "error"
+              ? "bg-red-500/10 border-red-500/30 text-red-400"
+              : "bg-zinc-800/90 border-zinc-700 text-white"
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${
+              toast.type === "success" ? "bg-green-500 animate-pulse" : toast.type === "error" ? "bg-red-500 animate-pulse" : "bg-white animate-pulse"
+            }`} />
+            <span className="text-xs font-bold leading-normal">{toast.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { FaEye, FaEyeSlash, FaChevronLeft } from "react-icons/fa";
+import { API_BASE } from "../config/api";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -21,6 +22,12 @@ export default function Register() {
   const [message, setMessage] = useState("");
 
   const [error, setError] = useState("");
+
+  const [loading, setLoading] = useState(false);
+
+  const isLengthMet = password.length >= 8;
+  const isNumberMet = /[0-9]/.test(password);
+  const isSpecialMet = /[^a-zA-Z0-9]/.test(password);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,8 +52,20 @@ export default function Register() {
       return;
     }
 
+    if (!isLengthMet) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    if (!isNumberMet || !isSpecialMet) {
+      setError("Password must contain at least one number and one special character");
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const response = await fetch("http://localhost:5000/api/auth/register", {
+      const response = await fetch(`${API_BASE}/api/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -77,6 +96,8 @@ export default function Register() {
     } catch (err) {
       setError("Unable to connect to server");
       console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -156,6 +177,25 @@ export default function Register() {
             </button>
           </div>
 
+          {/* Password Strength Checklist */}
+          <div className="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800 text-xs space-y-1.5">
+            <p className="text-zinc-400 font-semibold">Password Requirements:</p>
+            <ul className="space-y-1">
+              <li className={`flex items-center gap-2 transition-colors duration-205 ${isLengthMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isLengthMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                At least 8 characters
+              </li>
+              <li className={`flex items-center gap-2 transition-colors duration-205 ${isNumberMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isNumberMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                At least one number
+              </li>
+              <li className={`flex items-center gap-2 transition-colors duration-205 ${isSpecialMet ? "text-green-400 font-medium" : "text-zinc-500"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isSpecialMet ? "bg-green-450" : "bg-zinc-600"}`}></span>
+                At least one special character
+              </li>
+            </ul>
+          </div>
+
           {/* Confirm Password */}
           <div className="relative">
             <input
@@ -193,9 +233,10 @@ export default function Register() {
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/20 transition-all duration-200 cursor-pointer"
+            disabled={loading}
+            className="w-full bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/20 transition-all duration-200 cursor-pointer disabled:opacity-50"
           >
-            Create Account
+            {loading ? "Registering..." : "Create Account"}
           </button>
         </form>
 

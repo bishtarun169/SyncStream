@@ -16,7 +16,8 @@ const {
      addFriend,
      getFriends,
      inviteFriend,
-     dismissNotification
+     dismissNotification,
+     removeFriend
 } = require('../controllers/authController');
 const authMiddle = require('../middleware/authMiddleware');
 
@@ -25,8 +26,7 @@ router.post('/register', registerUser);
 router.post('/login', loginUser);
 
 // Verification (OTP)
-router.post('/verify', verifyOTP);
-router.post('/verify-otp', verifyOTP); // compat fallback
+router.post('/verify-otp', verifyOTP); // single OTP verification endpoint
 router.post('/resend-otp', resendOTP);
 
 // Password Recovery
@@ -42,6 +42,7 @@ router.post('/request-password-otp', authMiddle, requestPasswordOTP);
 // Friends routes
 router.post('/friends/add', authMiddle, addFriend);
 router.get('/friends', authMiddle, getFriends);
+router.delete('/friends/:friendUserId', authMiddle, removeFriend);
 router.post('/friends/invite', authMiddle, inviteFriend);
 router.post('/notifications/dismiss', authMiddle, dismissNotification);
 

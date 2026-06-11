@@ -77,7 +77,19 @@ const roomSchema = new mongoose.Schema({
      isActive: {
           type: Boolean,
           default: true,
-     },    
+     },
+     chatDisabled: {
+          type: Boolean,
+          default: false,
+     },
+     muteAll: {
+          type: Boolean,
+          default: false,
+     },
+     roomLocked: {
+          type: Boolean,
+          default: false,
+     },
 }, { timestamps: true });
 
 const Room = mongoose.model('Room', roomSchema);

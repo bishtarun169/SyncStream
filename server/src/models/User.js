@@ -54,7 +54,7 @@ const userSchema = new mongoose.Schema({
   settings: {
     theme: {
       type: String,
-      default: "dark",
+      default: "light",
     },
 
     allowJoinRequests: {
@@ -77,6 +77,22 @@ const userSchema = new mongoose.Schema({
   resetCode: {
     type: String,
     default: null,
+  },
+  resetCodeExpiry: {
+    type: Date,
+    default: null,
+  },
+  roomsCreated: {
+    type: Number,
+    default: 0,
+  },
+  roomsJoined: {
+    type: Number,
+    default: 0,
+  },
+  totalWatchMinutes: {
+    type: Number,
+    default: 0,
   },
   friends: [{
     type: mongoose.Schema.Types.ObjectId,

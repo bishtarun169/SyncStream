@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { FaChevronLeft, FaKey, FaEnvelope } from "react-icons/fa";
+import { API_BASE } from "../config/api";
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export default function VerifyEmail() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/verify", {
+      const response = await fetch(`${API_BASE}/api/auth/verify-otp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -67,7 +68,7 @@ export default function VerifyEmail() {
     setResendMessage("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/resend-otp", {
+      const response = await fetch(`${API_BASE}/api/auth/resend-otp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
