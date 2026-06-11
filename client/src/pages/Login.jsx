@@ -50,7 +50,7 @@ export default function Login() {
         } else {
           localStorage.setItem("theme", "light");
         }
-        
+
         // Redirect to /home after 1 second
         setTimeout(() => {
           navigate("/home");
@@ -130,7 +130,10 @@ export default function Login() {
 
           {/* Forgot Password Link */}
           <div className="text-right">
-            <Link to="/forgot-password" className="text-xs text-red-400 hover:text-red-300 transition hover:underline">
+            <Link
+              to="/forgot-password"
+              className="text-xs text-red-400 hover:text-red-300 transition hover:underline"
+            >
               Forgot Password?
             </Link>
           </div>
@@ -140,7 +143,10 @@ export default function Login() {
             <div className="bg-red-500/10 border border-red-500 text-red-400 rounded-xl px-4 py-3 text-sm">
               {error}
               {error.toLowerCase().includes("verify") && (
-                <Link to="/verify-email" className="block text-red-300 underline font-bold mt-1.5 hover:text-red-200">
+                <Link
+                  to="/verify-email"
+                  className="block text-red-300 underline font-bold mt-1.5 hover:text-red-200"
+                >
                   Verify your email here
                 </Link>
               )}
