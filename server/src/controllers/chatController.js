@@ -1,0 +1,59 @@
+const Message = require('../models/chat');
+
+// Create a new message
+const sendMessage = async (req, res) => {
+     try {
+          const { content } = req.body;
+          if (!content || !content.trim()) {
+               return res.status(400).json({
+                    message: 'Message cannot be empty'
+               });
+          }
+
+          const message = await Message.create({
+               room: req.room._id,
+               sender: req.user.userId,
+               content
+          });
+
+          await message.populate(
+               'sender',
+               'username'
+          );
+
+          res.status(201).json({
+               message: 'Message sent',
+               data: message
+          });
+
+     } catch (error) {
+          console.error(error);
+          res.status(500).json({
+               message: 'Server error'
+          });
+     }
+};
+
+// Get Message
+const getMessages = async (req, res) => {
+     try {
+          const messages = await Message.find({
+               room: req.room._id
+          })
+               .populate('sender', 'username')
+               .sort({ createdAt: 1 });
+
+          res.status(200).json(messages);
+
+     } catch (error) {
+          console.error(error);
+          res.status(500).json({
+               message: 'Server error'
+          });
+     }
+};
+
+module.exports = {
+     sendMessage,
+     getMessages
+};   

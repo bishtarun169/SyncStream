@@ -3,7 +3,7 @@ const Room = require('../models/Room');
 // Check if room exists
 const roomExists = async (req, res, next) => {
     try {
-        const roomId = req.params.id;
+        const roomId = req.params.roomID || req.params.id; 
         const room = await Room.findById(roomId);
 
         if (!room) {
