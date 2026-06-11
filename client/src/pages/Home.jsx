@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import Footer from "../components/Footer";
 import {
   FaUser,
   FaPlus,
@@ -31,6 +32,7 @@ export default function Home() {
   // User profile state
   const [user, setUser] = useState({
     name: "Loading...",
+    userId: "",
     email: "Loading...",
     profilePic: "",
     createdAt: "",
@@ -41,20 +43,13 @@ export default function Home() {
   });
 
   // Friends state
-  const [friends, setFriends] = useState([
-    { name: "Sarah Connor 🍿", status: "online", avatar: "S" },
-    { name: "John Doe 🎬", status: "online", avatar: "J" },
-    { name: "Marcus Wright 🎧", status: "offline", avatar: "M" },
-  ]);
+  const [friends, setFriends] = useState([]);
   const [newFriendName, setNewFriendName] = useState("");
 
   // Dropdown states
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, sender: "Sarah Connor", text: "invited you to watch: Interstellar Night 🌌", room: "SM-NOLAN-99" },
-    { id: 2, sender: "John Doe", text: "started a new watch room: Lofi Study ☕", room: "SM-LOFI-21" },
-  ]);
+  const [notifications, setNotifications] = useState([]);
 
   // Edit details states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -108,9 +103,16 @@ export default function Home() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
-  // Load user data on mount
+  // Load user data on mount and poll for notifications
   useEffect(() => {
     fetchProfile();
+    fetchRecentRooms();
+
+    const interval = setInterval(() => {
+      fetchProfile();
+    }, 8000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchProfile = async () => {
@@ -137,6 +139,18 @@ export default function Home() {
         setEditBio(data.user.bio || "");
         setEditLocation(data.user.location || "");
         setEditBirthday(data.user.birthday || "");
+        if (data.user.friends) {
+          setFriends(data.user.friends.map(f => ({
+            _id: f._id,
+            name: f.name,
+            userId: f.userId,
+            status: "online",
+            avatar: f.name ? f.name.charAt(0).toUpperCase() : "U"
+          })));
+        }
+        if (data.user.notifications) {
+          setNotifications(data.user.notifications);
+        }
         if (data.user.settings) {
           setSettingsTheme(data.user.settings.theme || "dark");
           setSettingsAllowJoinRequests(data.user.settings.allowJoinRequests || "everyone");
@@ -325,25 +339,49 @@ export default function Home() {
     }
   };
 
-  // Add friend handler (interactive mock)
-  const handleAddFriend = (e) => {
+  // Add friend handler (database-backed)
+  const handleAddFriend = async (e) => {
     e.preventDefault();
-    if (!newFriendName.trim()) return;
+    const targetUserId = newFriendName.trim();
+    if (!targetUserId) return;
 
-    // Check if friend already exists
-    if (friends.some(f => f.name.toLowerCase().includes(newFriendName.toLowerCase()))) {
-      alert("This friend is already in your list.");
+    // Check if friend already exists in list (by userId)
+    if (friends.some(f => f.userId && f.userId.toLowerCase() === targetUserId.toLowerCase())) {
+      alert("This user is already in your friend list.");
       return;
     }
 
-    const newFriend = {
-      name: newFriendName,
-      status: "online", // Set newly added friends to online for fun
-      avatar: newFriendName.charAt(0).toUpperCase()
-    };
+    const token = localStorage.getItem("token");
+    if (!token) return;
 
-    setFriends([...friends, newFriend]);
-    setNewFriendName("");
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/friends/add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ friendUserId: targetUserId }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.friend) {
+        const newFriend = {
+          _id: data.friend._id,
+          name: data.friend.name,
+          userId: data.friend.userId,
+          status: "online",
+          avatar: data.friend.name ? data.friend.name.charAt(0).toUpperCase() : "U"
+        };
+        setFriends([...friends, newFriend]);
+        setNewFriendName("");
+      } else {
+        alert(data.message || "Could not add friend.");
+      }
+    } catch (err) {
+      console.error("Error adding friend:", err);
+      alert("Failed to connect to server to add friend.");
+    }
   };
 
   // Extract online count
@@ -356,31 +394,58 @@ export default function Home() {
     return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   };
 
-  // Mock watch party room details
-  const recentRooms = [
-    {
-      id: "SM-NOLAN-99",
-      name: "Interstellar Night 🌌",
-      movie: "Interstellar (2014)",
-      date: "Yesterday",
-      participants: "4 friends",
-    },
-    {
-      id: "SM-LOFI-21",
-      name: "Morning Lofi Study Session ☕",
-      movie: "Lofi Hip Hop Radio",
-      date: "3 days ago",
-      participants: "8 people",
-    },
-  ];
+  const [recentRooms, setRecentRooms] = useState([]);
 
-  const handleJoinNotification = (roomCode) => {
-    navigate("/join-room");
-    setIsNotificationOpen(false);
+  const fetchRecentRooms = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const response = await fetch("http://localhost:5000/api/rooms", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const mapped = data.map(room => ({
+          id: room.roomCode,
+          name: room.roomName,
+          movie: room.videoURL,
+          date: room.updatedAt ? new Date(room.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : "Just now",
+          participants: `${room.participants ? room.participants.length : 0} ${room.participants && room.participants.length === 1 ? 'person' : 'people'}`
+        }));
+        setRecentRooms(mapped);
+      }
+    } catch (err) {
+      console.error("Error fetching recent rooms:", err);
+    }
   };
 
-  const handleDismissNotification = (id) => {
-    setNotifications(notifications.filter((n) => n.id !== id));
+  const handleJoinNotification = async (roomCode, notificationId) => {
+    navigate(`/join-room?code=${roomCode}`);
+    setIsNotificationOpen(false);
+    if (notificationId) {
+      await handleDismissNotification(notificationId);
+    }
+  };
+
+  const handleDismissNotification = async (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      await fetch("http://localhost:5000/api/auth/notifications/dismiss", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ notificationId: id })
+      });
+    } catch (err) {
+      console.error("Failed to dismiss notification on server:", err);
+    }
   };
 
   // Theme variable configurations
@@ -481,10 +546,9 @@ export default function Home() {
                             <div className="text-xs">
                               <span className="font-bold text-red-500 block">{n.sender}</span>
                               <span className={isLight ? "text-zinc-600" : "text-zinc-300"}>{n.text}</span>
-                            </div>
-                            <div className="flex gap-2">
+                                                       <div className="flex gap-2">
                               <button
-                                onClick={() => handleJoinNotification(n.room)}
+                                onClick={() => handleJoinNotification(n.room, n.id)}
                                 className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition flex-1 cursor-pointer"
                               >
                                 Join
@@ -497,7 +561,7 @@ export default function Home() {
                               >
                                 Dismiss
                               </button>
-                            </div>
+                            </div>    </div>
                           </div>
                         ))}
                       </div>
@@ -658,23 +722,30 @@ export default function Home() {
                   Recent Watch Parties
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {recentRooms.map((room) => (
-                    <div
-                      key={room.id}
-                      className={`${cardNestedThemeClass} p-5 rounded-2xl flex items-center justify-between border ${isLight ? 'border-zinc-200' : 'border-zinc-800/40'}`}
-                    >
-                      <div className="space-y-1 max-w-[70%]">
-                        <h4 className="font-bold text-sm truncate">{room.name}</h4>
-                        <p className={`${textMutedClass} text-[11px] truncate`}>Playing: {room.movie}</p>
-                        <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-505'} text-[10px] flex items-center gap-1.5 mt-2`}>
-                          <FaClock size={8} /> {room.date} • {room.participants}
-                        </p>
-                      </div>
-                      <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg ${isLight ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-800 text-zinc-300'}`}>
-                        {room.id}
-                      </span>
+                  {recentRooms.length === 0 ? (
+                    <div className={`col-span-2 text-center py-10 border border-dashed rounded-3xl ${isLight ? 'border-zinc-300 bg-zinc-50/50' : 'border-zinc-800/60 bg-[#141418]/20'}`}>
+                      <p className={`${textMutedClass} text-xs font-bold`}>No recent watch parties found.</p>
+                      <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-500'} text-[10px] mt-1`}>Create a new room or join a friend's room to get started!</p>
                     </div>
-                  ))}
+                  ) : (
+                    recentRooms.map((room) => (
+                      <div
+                        key={room.id}
+                        className={`${cardNestedThemeClass} p-5 rounded-2xl flex items-center justify-between border ${isLight ? 'border-zinc-200' : 'border-zinc-800/40'}`}
+                      >
+                        <div className="space-y-1 max-w-[70%]">
+                          <h4 className="font-bold text-sm truncate">{room.name}</h4>
+                          <p className={`${textMutedClass} text-[11px] truncate`}>Playing: {room.movie}</p>
+                          <p className={`${isLight ? 'text-zinc-400' : 'text-zinc-500'} text-[10px] flex items-center gap-1.5 mt-2`}>
+                            <FaClock size={8} /> {room.date} • {room.participants}
+                          </p>
+                        </div>
+                        <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg ${isLight ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-800 text-zinc-300'}`}>
+                          {room.id}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -710,35 +781,39 @@ export default function Home() {
 
               {/* Friends items scroll list */}
               <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
-                {friends.map((friend, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition duration-200 ${
-                      isLight 
-                        ? 'bg-zinc-50 border-zinc-100 hover:bg-zinc-100' 
-                        : 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-900/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-extrabold flex items-center justify-center">
-                        {friend.avatar}
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold block">
-                          {friend.name}
-                        </span>
-                        <span className={`${textMutedClass} text-[10px] flex items-center gap-1`}>
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              friend.status === "online" ? "bg-green-500" : "bg-zinc-500"
-                            }`}
-                          ></span>
-                          {friend.status === "online" ? "Online" : "Offline"}
-                        </span>
+                {friends.length === 0 ? (
+                  <p className={`${textMutedClass} text-xs text-center py-6`}>No friends added yet.</p>
+                ) : (
+                  friends.map((friend, idx) => (
+                    <div
+                      key={friend._id || idx}
+                      className={`flex items-center justify-between p-3 rounded-xl border transition duration-200 ${
+                        isLight 
+                          ? 'bg-zinc-50 border-zinc-100 hover:bg-zinc-100' 
+                          : 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-900/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-extrabold flex items-center justify-center">
+                          {friend.avatar}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">
+                            {friend.name} {friend.userId && <span className="text-[10px] font-normal text-zinc-500 font-mono ml-1">@{friend.userId}</span>}
+                          </span>
+                          <span className={`${textMutedClass} text-[10px] flex items-center gap-1`}>
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                friend.status === "online" ? "bg-green-500" : "bg-zinc-500"
+                              }`}
+                            ></span>
+                            {friend.status === "online" ? "Online" : "Offline"}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -803,6 +878,10 @@ export default function Home() {
 
                 {/* Form fields displays */}
                 <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 border-t ${isLight ? 'border-zinc-200' : 'border-zinc-800/80'} pt-6 text-left`}>
+                  <div>
+                    <span className={`text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-505'} uppercase tracking-wider block`}>User ID</span>
+                    <span className={`${textSubtleClass} text-sm sm:text-base font-medium truncate block`}>@{user.userId || "unassigned"}</span>
+                  </div>
                   <div>
                     <span className={`text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-505'} uppercase tracking-wider block`}>Email Address</span>
                     <span className={`${textSubtleClass} text-sm sm:text-base font-medium truncate block`}>{user.email}</span>
@@ -1230,6 +1309,7 @@ export default function Home() {
         </div>
       )}
 
+      <Footer />
     </div>
   );
 }
