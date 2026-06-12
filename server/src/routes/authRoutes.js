@@ -1,5 +1,4 @@
 const express = require('express');
-
 const router = express.Router();
 
 const { 
@@ -12,13 +11,9 @@ const {
      resendOTP,
      forgotPassword,
      resetPassword,
-     requestPasswordOTP,
-     addFriend,
-     getFriends,
-     inviteFriend,
-     dismissNotification,
-     removeFriend
+     requestPasswordOTP
 } = require('../controllers/authController');
+
 const authMiddle = require('../middleware/authMiddleware');
 
 // Authentication & Registration
@@ -38,12 +33,5 @@ router.get('/me', authMiddle, getCurrentUser);
 router.put('/update', authMiddle, updateUser);
 router.delete('/delete', authMiddle, deleteUser);
 router.post('/request-password-otp', authMiddle, requestPasswordOTP);
-
-// Friends routes
-router.post('/friends/add', authMiddle, addFriend);
-router.get('/friends', authMiddle, getFriends);
-router.delete('/friends/:friendUserId', authMiddle, removeFriend);
-router.post('/friends/invite', authMiddle, inviteFriend);
-router.post('/notifications/dismiss', authMiddle, dismissNotification);
 
 module.exports = router;

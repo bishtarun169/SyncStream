@@ -9,9 +9,6 @@ const transporter = nodeMailer.createTransport({
     }
 });  
 
-
-
-
 const sendOTPEmail = async (to, otp) => {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
         if (process.env.NODE_ENV === 'development') {

@@ -28,10 +28,10 @@ const createRoom = async (req, res) => {
           }
 
           // Validate URL unless Twitch channel name
-          if (mediaSource !== 'twitch') {
-               if (!validator.isURL(videoURL, { require_protocol: true })) {
-                    return res.status(400).json({ message: 'Invalid video URL' });
-               }
+          if (!validator.isURL(videoURL, { require_protocol: true })) {
+               return res.status(400).json({
+                    message: "Invalid URL"
+               });
           }
 
           // Generate unique room code with uniqueness retry logic
@@ -394,10 +394,10 @@ const getUserRooms = async (req, res) => {
                     { "participants.user": userId }
                ]
           })
-          .populate('host', 'name email userId profilePic')
-          .populate('participants.user', 'name email userId profilePic')
-          .sort({ updatedAt: -1 })
-          .limit(10);
+               .populate('host', 'name email userId profilePic')
+               .populate('participants.user', 'name email userId profilePic')
+               .sort({ updatedAt: -1 })
+               .limit(10);
 
           res.status(200).json(rooms);
      } catch (error) {

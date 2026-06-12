@@ -11,8 +11,6 @@ const roomExists = async (req, res, next) => {
                 message: 'Room not found'
             });
         }
-
-        // Attaching room to request object
         req.room = room;
         next();
     } catch (error) {
@@ -23,7 +21,6 @@ const roomExists = async (req, res, next) => {
                 message: 'Room not found'
             });
         }
-
         res.status(500).json({
             message: 'Server error'
         });

@@ -1,4 +1,4 @@
-const Message = require('../models/chat');
+const Message = require('../models/Message');
 
 // Create a new message
 const sendMessage = async (req, res) => {

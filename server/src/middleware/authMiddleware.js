@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 
+// Verifyng authentication
 const authMiddle = (req, res, next) => {
      try {
           const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -9,7 +10,6 @@ const authMiddle = (req, res, next) => {
 
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
           
-
           req.user = {
                userId: decoded.userId
           };

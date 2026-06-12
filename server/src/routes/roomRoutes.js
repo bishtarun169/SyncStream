@@ -1,5 +1,4 @@
 const express = require('express');
-
 const router = express.Router();
 
 const { createRoom, joinRoom , leaveRoom , getRoom, getParticipants, getRoomByCode, kickParticipant, toggleMuteParticipant, getUserRooms, getPublicRooms, updateRoomSettings } = require('../controllers/roomController');

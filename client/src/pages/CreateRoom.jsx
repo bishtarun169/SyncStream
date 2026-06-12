@@ -36,14 +36,6 @@ export default function CreateRoom() {
       setLoading(true);
       // Normalize URL before sending
       let resolvedUrl = mediaUrl.trim();
-      if (mediaSource === "youtube") {
-        const ytid = extractYouTubeId(resolvedUrl);
-        if (ytid) resolvedUrl = ytid;
-      } else if (mediaSource === "twitch") {
-        const channel = extractTwitchChannel(resolvedUrl);
-        if (channel) resolvedUrl = channel;
-      }
-
       const token = localStorage.getItem("token");
 
       // Call backend create room API

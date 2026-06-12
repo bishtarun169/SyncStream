@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
+
 const { sendMessage, getMessages } = require('../controllers/chatController');
 const authMiddleware = require('../middleware/authMiddleware');
-
 const { roomExists } = require('../middleware/roomMiddleware');
 
 // Send a message
