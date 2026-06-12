@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import Footer from "../components/Footer";
+import Footer from "../components/Common/Footer";
 import { io } from "socket.io-client";
 import { API_BASE } from "../config/api";
 import {
